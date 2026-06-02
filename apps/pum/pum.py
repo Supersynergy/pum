@@ -102,9 +102,9 @@ def _which(name: str) -> bool:
 class Adapter:
     name: str = ""
     binary: str = ""
-    # report_only adapters are NEVER upgraded by `pum update --all`; they require an
-    # explicit `pum update --manager <name> --apply` (e.g. macOS softwareupdate, which
-    # can install OS updates / trigger reboots).
+    # Generic safety net: a report_only adapter is never upgraded by `pum update --all`
+    # and needs an explicit `pum update --manager <name> --apply`. No adapter sets this
+    # today (the OS updater is excluded outright) — kept so risky managers can opt in.
     report_only: bool = False
 
     def detect(self) -> bool:
@@ -644,45 +644,9 @@ class GhAdapter(Adapter):
         return ["gh", "extension", "upgrade", "--all"]
 
 
-class SoftwareUpdateAdapter(Adapter):
-    """macOS softwareupdate — report only, never auto-apply."""
-
-    name = "softwareupdate"
-    binary = "softwareupdate"
-    report_only = True  # excluded from `update --all`; needs explicit --manager + --apply
-
-    def detect(self) -> bool:
-        return sys.platform == "darwin" and _which("softwareupdate")
-
-    def list_installed(self) -> list[Package]:
-        return []  # no meaningful installed list
-
-    def list_outdated(self) -> list[Package]:
-        rc, out, _ = _run(["softwareupdate", "-l"], timeout=120)
-        packages = []
-        for line in out.splitlines():
-            line = line.strip()
-            if line.startswith("*") or line.startswith("-"):
-                name = line.lstrip("*- ").strip()
-                if name:
-                    packages.append(
-                        Package(
-                            manager="softwareupdate",
-                            name=name,
-                            installed="installed",
-                            latest="available",
-                            status="outdated",
-                            source="macos",
-                        )
-                    )
-        return packages
-
-    def upgrade_cmd(self, pkg: str | None = None) -> list[str]:
-        # Report only — never called automatically
-        return ["softwareupdate", "-ia", "--verbose"]
-
-    def self_update_cmd(self) -> list[str]:
-        return []
+# NOTE: macOS `softwareupdate` is intentionally NOT an adapter. pum manages packages and
+# developer tools ONLY — never the OS. Scanning/installing OS updates can trigger reboots
+# and is far too dangerous to automate, so it is excluded entirely (not merely gated).
 
 
 # ---------------------------------------------------------------------------
@@ -702,7 +666,7 @@ ALL_ADAPTERS: list[Adapter] = [
     GoAdapter(),
     MiseAdapter(),
     GhAdapter(),
-    SoftwareUpdateAdapter(),
+    # SoftwareUpdateAdapter intentionally excluded — pum never touches the OS (see note above).
 ]
 
 
@@ -1058,8 +1022,7 @@ def cmd_update(args: argparse.Namespace) -> int:
         return 0
 
     for adapter in adapters:
-        # report-only adapters (softwareupdate) are NEVER run by --all; they need an
-        # explicit `pum update --manager <name> --apply` to guard against OS-update/reboot.
+        # any report-only adapter is NEVER run by --all; needs explicit --manager + --apply.
         if adapter.report_only:
             targeted = args.manager == adapter.name
             if not (targeted and getattr(args, "apply", False)):
@@ -1138,7 +1101,7 @@ def build_parser() -> argparse.ArgumentParser:
     update.add_argument(
         "--apply",
         action="store_true",
-        help="Required to actually run report-only managers (e.g. softwareupdate)",
+        help="Required to actually run any report-only manager (none by default)",
     )
 
     self_cmd = sub.add_parser("self", help="Check/update the managers themselves")

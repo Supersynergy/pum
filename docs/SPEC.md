@@ -80,14 +80,19 @@ Mirrored to `data/inventory.json` on every `pum scan`.
 | go | go | `ls $(go env GOPATH)/bin` | — | — |
 | mise | mise | `mise ls --current` | `mise outdated` | — |
 | gh | gh | `gh extension list` | — | — |
-| softwareupdate | softwareupdate | — | `softwareupdate -l` | — |
+
+## Scope — packages & tools only, never the OS
+
+pum manages package managers and developer tools only. It deliberately does **not** include
+the macOS `softwareupdate` (OS) updater: scanning or installing OS updates can trigger
+reboots and is too dangerous to automate. There is no adapter for it.
 
 ## Error Handling
 
 - Per-adapter errors are caught, logged to stderr, and do not abort the overall scan.
-- `softwareupdate` is macOS-only; `detect()` checks `sys.platform == "darwin"`.
 - Go binary versions are not available from the binary; `installed` is set to `"unknown"`.
-- `pum update` never touches `softwareupdate` automatically; macOS updates require explicit manual invocation.
+- `report_only` adapters (none by default) are excluded from `pum update --all` and require
+  an explicit `pum update --manager <name> --apply`.
 
 ## Concurrency
 

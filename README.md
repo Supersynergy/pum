@@ -31,7 +31,9 @@ just lint
 
 ## Adapters
 
-brew · npm · pnpm · bun · uv · pipx · cargo · rustup · gem · go · mise · gh · softwareupdate (macOS, report-only)
+brew · npm · pnpm · bun · uv · pipx · cargo · rustup · gem · go · mise · gh
+
+> Packages & developer tools only. The macOS OS updater (`softwareupdate`) is **excluded by design** — pum never scans or installs OS updates (reboot risk).
 
 ## Data
 

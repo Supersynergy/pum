@@ -5,6 +5,9 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed (2026-06-03)
+- **Scope = packages & tools only, never the OS.** Removed the macOS `softwareupdate` adapter entirely (not just gated): pum no longer scans, reports, or installs OS updates — too dangerous (reboot risk). Adapter count 13 → 12. Verified: `doctor`, `scan`, and `update --all` contain zero softwareupdate references. The generic `report_only` safety net stays for any future risky manager (none today).
+
 ### Fixed (post-review hardening, 2026-06-03)
 - **Safety:** `pum update --all` no longer auto-runs report-only managers. macOS `softwareupdate` (which can install OS updates / trigger reboots) is excluded from `--all` and requires an explicit `pum update --manager softwareupdate --apply`. Added `Adapter.report_only` + `--apply` flag on `update`.
 - **Count invariant:** primary key changed to `(manager, name, installed)` so multiple versions of one name (e.g. mise `python` 3.12/3.13/3.14) each persist instead of collapsing to one DB row. Verified: 3 mise-python rows retained.
