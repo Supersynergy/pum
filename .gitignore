@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+.eggs/
+*.egg-info/
+dist/
+build/
+.ruff_cache/
+
+# uv
+.uv/
+uv.lock
+
+# Data artifacts (keep schema, not data)
+data/inventory.db
+data/inventory.json
+
+# macOS
+.DS_Store
