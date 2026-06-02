@@ -5,6 +5,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed — rewritten in Rust (2026-06-03)
+- **pum is now a single static Rust binary** (`apps/pum/`, edition 2024; clap + rusqlite + serde + rayon). The Python v0 (verified, 718-pkg scan) is replaced — it depended on the python runtime it manages (uv/pipx), which a machine-maintenance tool must not. Rust matches the direct peers (topgrade, mise, uv) and installs via `cargo install --path apps/pum` (→ `~/.cargo/bin/pum`), no venv.
+- Full parity verified on host: 12 adapters (no OS), `scan` = 721 pkgs (≈ python 718), `check` finds updates, `report`/`update --dry-run`/`self`/`doctor` all work, 6 unit tests pass, `cargo clippy` + release build clean, 0 OS references.
+- Inventory moved to `~/.local/share/pum/inventory.db` (+ `inventory.json`); override with `$PUM_DB`. Same schema + PK `(manager,name,installed)` + status-preserving upsert as the hardened Python version.
+- Python reference preserved in git history (commit `3f65213`).
+
+
 ### Changed (2026-06-03)
 - **Scope = packages & tools only, never the OS.** Removed the macOS `softwareupdate` adapter entirely (not just gated): pum no longer scans, reports, or installs OS updates — too dangerous (reboot risk). Adapter count 13 → 12. Verified: `doctor`, `scan`, and `update --all` contain zero softwareupdate references. The generic `report_only` safety net stays for any future risky manager (none today).
 

@@ -1,33 +1,42 @@
 # pum — Package Update Manager
 
-Unified multi-manager package inventory and update tool.
-Adapter-based: only managers present on your PATH are activated.
+Unified multi-manager package inventory and update tool. Single static **Rust** binary,
+zero runtime deps. Adapter-based: only managers present on your PATH are activated.
+
+## Install
+
+```bash
+cargo install --path apps/pum     # → ~/.cargo/bin/pum
+# or:  just install
+```
 
 ## Quick Start
 
 ```bash
-python3 apps/pum/pum.py doctor   # which managers are live
-python3 apps/pum/pum.py scan     # inventory all installed packages
-python3 apps/pum/pum.py check    # find outdated packages
-python3 apps/pum/pum.py report   # print table
-python3 apps/pum/pum.py report --outdated --json
-python3 apps/pum/pum.py update --dry-run --all
-python3 apps/pum/pum.py self     # show manager self-update commands
-python3 apps/pum/pum.py self --apply
+pum doctor                 # which managers are live
+pum scan                   # inventory all installed packages → SQLite + JSON
+pum check                  # find outdated packages (queries each manager)
+pum report                 # print table (installed vs latest)
+pum report --outdated --json
+pum update --dry-run --all # preview upgrades (mutates nothing)
+pum update --manager brew  # upgrade one manager's packages
+pum self                   # show manager self-update commands
+pum self --apply
 ```
 
-Or via just:
+Inventory DB: `$PUM_DB` or `~/.local/share/pum/inventory.db` (+ `inventory.json`).
+
+Dev via just (runs from source):
 
 ```bash
-just doctor
-just scan
-just check
-just report
-just report --outdated
-just update --dry-run
-just test
-just lint
+just build · just doctor · just scan · just check · just report --outdated · just test · just ci
 ```
+
+## Why Rust
+
+pum updates Python tooling (uv, pipx) — a Python implementation would depend on the very
+runtime it manages. A self-contained Rust binary has zero runtime deps, matching the
+direct peers (topgrade, mise, uv). See `CHANGELOG.md` (Python v0 → Rust port).
 
 ## Adapters
 

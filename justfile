@@ -1,45 +1,55 @@
+crate := "apps/pum"
+
 _default:
     @just --list
 
-# Install / sync dependencies
+# Build the release binary
 setup:
-    cd apps/pum && uv sync
+    cd {{crate}} && cargo build --release
+
+# Build (release)
+build:
+    cd {{crate}} && cargo build --release
+
+# Install `pum` to ~/.cargo/bin
+install:
+    cargo install --path {{crate}}
 
 # Verify adapters on this host
 doctor:
-    python3 apps/pum/pum.py doctor
+    cd {{crate}} && cargo run -q -- doctor
 
 # Detect and inventory installed packages
 scan:
-    python3 apps/pum/pum.py scan
+    cd {{crate}} && cargo run -q -- scan
 
 # Check for outdated packages
 check:
-    python3 apps/pum/pum.py check
+    cd {{crate}} && cargo run -q -- check
 
 # Print inventory report
 report *FLAGS:
-    python3 apps/pum/pum.py report {{FLAGS}}
+    cd {{crate}} && cargo run -q -- report {{FLAGS}}
 
 # Run updates (--dry-run to preview)
 update *FLAGS:
-    python3 apps/pum/pum.py update {{FLAGS}}
+    cd {{crate}} && cargo run -q -- update {{FLAGS}}
 
 # Self-update managers (--apply to run)
 self *FLAGS:
-    python3 apps/pum/pum.py self {{FLAGS}}
+    cd {{crate}} && cargo run -q -- self {{FLAGS}}
 
 # Run unit tests
 test:
-    python3 -m unittest discover -s apps/pum/tests -p "test_*.py" -v
+    cd {{crate}} && cargo test
 
-# Lint with ruff
-lint:
-    ruff check apps/pum/pum.py apps/pum/tests/
+# Lint + format check
+check-code:
+    cd {{crate}} && cargo clippy --all-targets -- -D warnings && cargo fmt --check
 
-# Format with ruff
+# Format
 fmt:
-    ruff format apps/pum/pum.py apps/pum/tests/
+    cd {{crate}} && cargo fmt
 
-# Type + lint gate
-ci: test lint
+# Full gate
+ci: test check-code

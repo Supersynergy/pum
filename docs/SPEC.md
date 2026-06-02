@@ -6,38 +6,30 @@
 
 ## Adapter Contract
 
-Every adapter must subclass `Adapter` and implement:
+Every adapter implements the `Adapter` trait (`src/adapters/mod.rs`):
 
-```python
-class Adapter:
-    name: str          # unique short id (e.g. "brew", "cargo")
-    binary: str        # binary to probe with shutil.which()
-
-    def detect(self) -> bool:
-        """Return True if this manager is present on the host."""
-
-    def list_installed(self) -> list[Package]:
-        """Return all installed packages with name + installed version."""
-
-    def list_outdated(self) -> list[Package]:
-        """Return packages with installed < latest; set status='outdated'."""
-
-    def upgrade_cmd(self, pkg: str | None = None) -> list[str]:
-        """Return argv to upgrade pkg (or all if pkg=None). Never execute."""
-
-    def self_update_cmd(self) -> list[str]:
-        """Return argv to update the manager itself. Never execute."""
+```rust
+pub trait Adapter: Send + Sync {
+    fn name(&self) -> &str;             // unique short id (e.g. "brew")
+    fn binary(&self) -> &str;           // binary probed via which::which()
+    fn detect(&self) -> bool;           // default: which(binary).is_ok()
+    fn list_installed(&self) -> Vec<Package>;
+    fn list_outdated(&self) -> Vec<Package>;          // status="outdated"
+    fn upgrade_cmd(&self, pkg: Option<&str>) -> Vec<String>;  // argv, never executed here
+    fn self_update_cmd(&self) -> Vec<String> { vec![] }
+    fn report_only(&self) -> bool { false }           // excluded from `update --all`
+}
 ```
 
 Rules:
-- Every subprocess call must use `_run()` with a timeout (default 60s).
-- Adapters must never raise; catch all exceptions internally and return `[]`.
+- Every subprocess call uses `run::run()` with a timeout (default 60s); it never panics on missing binary or non-zero exit.
+- Adapters return `Vec<Package>` and never panic; the scan wraps each in `catch_unwind` so one failing adapter cannot abort the run.
 - `list_outdated()` is separate from `list_installed()` and is ONLY called by `pum check`.
 - Updates are NEVER triggered during `scan` or `check`.
 
 ## Data Model
 
-SQLite table `tools` at `data/inventory.db`:
+SQLite table `tools` at `~/.local/share/pum/inventory.db` (override with `$PUM_DB`):
 
 | Column      | Type | Notes |
 |-------------|------|-------|
@@ -49,9 +41,11 @@ SQLite table `tools` at `data/inventory.db`:
 | source      | TEXT | e.g. brew, brew-cask, npm-global |
 | checked_at  | TEXT | ISO-8601 UTC timestamp |
 
-Primary key: `(manager, name)`. Upserts on every scan/check.
+Primary key: `(manager, name, installed)` — multiple versions of one name (e.g. mise
+`python` 3.12/3.13/3.14) each persist. Upserts on scan/check; a re-`scan` never wipes a
+prior `check` result (latest/status only overwritten when the incoming row has a real value).
 
-Mirrored to `data/inventory.json` on every `pum scan`.
+Mirrored to `inventory.json` (same dir) on every `pum scan`.
 
 ## Commands
 
@@ -96,5 +90,5 @@ reboots and is too dangerous to automate. There is no adapter for it.
 
 ## Concurrency
 
-`scan` and `check` run adapters concurrently using `concurrent.futures.ThreadPoolExecutor(max_workers=8)`.
-`update` runs sequentially per adapter to avoid conflicting package manager locks.
+`scan` and `check` run adapters concurrently via `rayon` (`par_iter`), each wrapped in
+`catch_unwind`. `update` runs sequentially per adapter to avoid conflicting package-manager locks.
