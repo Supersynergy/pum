@@ -1,17 +1,18 @@
 # pum — Agent Instructions
 
-Entry point: `apps/pum/pum.py` (single file, stdlib only).
-Tests: `python3 -m unittest discover -s apps/pum/tests -p "test_*.py" -v`
-Lint: `ruff check apps/pum/`
+Rust crate: `apps/pum/` (entry `src/main.rs`). Install: `cargo install --path apps/pum`.
+Tests: `cd apps/pum && cargo test`. Lint: `cargo clippy --all-targets -- -D warnings && cargo fmt --check`.
 
 ## Adapter pattern
 
-Add new managers by subclassing `Adapter` in `pum.py` and appending an instance to `ALL_ADAPTERS`.
-Every subprocess call must go through `_run(argv, timeout=N)` — never use subprocess directly.
-Updates are never triggered in `scan` or `check`.
+Add a manager: new file in `src/adapters/<name>.rs`, impl the `Adapter` trait, register in
+`all_adapters()` in `src/adapters/mod.rs`. Put parse logic in a pure `pub fn` + a unit test
+in `main.rs`. Every subprocess call goes through `run::run(argv, timeout)` — never use
+`std::process::Command` directly. Updates are never triggered in `scan` or `check`.
+Packages & developer tools only — never add an OS updater.
 
 ## Key paths
 
-- `data/inventory.db` — SQLite inventory (auto-created)
-- `data/inventory.json` — JSON mirror (written on scan)
-- `docs/SPEC.md` — adapter contract and data model
+- `~/.local/share/pum/inventory.db` — SQLite inventory (override `$PUM_DB`)
+- `~/.local/share/pum/inventory.json` — JSON mirror (written on scan)
+- `docs/SPEC.md` — adapter trait contract and data model
