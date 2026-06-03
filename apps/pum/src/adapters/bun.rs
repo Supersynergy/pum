@@ -17,18 +17,16 @@ impl Adapter for BunAdapter {
         let mut packages = Vec::new();
         for line in out.lines() {
             // strip tree chars: └─ ├─ and leading spaces
-            let line = line
-                .trim()
-                .trim_start_matches(|c: char| matches!(c, '└' | '─' | '├' | ' '));
+            let line = line.trim().trim_start_matches(['└', '─', '├', ' ']);
             // format: name@version — skip bun itself
-            if line.contains('@') && !line.starts_with("bun") {
-                if let Some(at) = line.rfind('@') {
-                    if at > 0 {
-                        let name = &line[..at];
-                        let ver = &line[at + 1..];
-                        packages.push(Package::new("bun", name, ver, "bun-global"));
-                    }
-                }
+            if line.contains('@')
+                && !line.starts_with("bun")
+                && let Some(at) = line.rfind('@')
+                && at > 0
+            {
+                let name = &line[..at];
+                let ver = &line[at + 1..];
+                packages.push(Package::new("bun", name, ver, "bun-global"));
             }
         }
         packages

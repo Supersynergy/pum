@@ -19,3 +19,6 @@ data/inventory.json
 
 # macOS
 .DS_Store
+
+# debugmaster local artifacts
+.debugmaster/

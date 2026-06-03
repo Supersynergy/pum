@@ -6,10 +6,9 @@ pub const SUBPROCESS_TIMEOUT: u64 = 60;
 /// Run a command with timeout; returns (exit_code, stdout, stderr).
 /// Never panics on missing binary or non-zero exit.
 pub fn run(argv: &[&str], timeout_secs: u64) -> (i32, String, String) {
-    if argv.is_empty() {
+    let Some((prog, args)) = argv.split_first() else {
         return (-1, String::new(), "empty argv".to_string());
-    }
-    let (prog, args) = argv.split_first().unwrap();
+    };
 
     // Use a thread + channel to implement timeout since std doesn't have it.
     let prog_owned = prog.to_string();
@@ -22,6 +21,8 @@ pub fn run(argv: &[&str], timeout_secs: u64) -> (i32, String, String) {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .output();
+        // Receiver may have already timed out and dropped rx; ignoring the
+        // send error is intentional — the caller has moved on.
         let _ = tx.send(result);
     });
 

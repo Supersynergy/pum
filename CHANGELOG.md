@@ -5,6 +5,11 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — lint + reliability hardening (2026-06-03)
+- **clippy now actually clean** (`cargo clippy --all-targets`, 0 warnings). The prior "clippy clean" claim had drifted: 5 lints had crept in. Fixed: `sort_by` → `sort_by_key(Reverse)`, collapsible-`if` ×2, manual-char-compare, and `enum Cmd` variant `SelfCmd` → `SelfUpdate` (CLI name still pinned to `self` via `#[command(name = "self")]`, verified).
+- **run.rs hardening:** replaced a guarded `split_first().unwrap()` with `let-else` (dedups the empty-argv check, removes the unwrap); documented the intentional `tx.send` error-ignore. Debugmaster audit: Grade A (97/100), Release SHIP, 0 critical/high.
+- **README:** Requirements footer corrected from stale Python (`Python 3.11+ / stdlib / ruff`) to Rust (`Rust 1.85+ edition 2024, cargo build/clippy/test`).
+
 ### Changed — rewritten in Rust (2026-06-03)
 - **pum is now a single static Rust binary** (`apps/pum/`, edition 2024; clap + rusqlite + serde + rayon). The Python v0 (verified, 718-pkg scan) is replaced — it depended on the python runtime it manages (uv/pipx), which a machine-maintenance tool must not. Rust matches the direct peers (topgrade, mise, uv) and installs via `cargo install --path apps/pum` (→ `~/.cargo/bin/pum`), no venv.
 - Full parity verified on host: 12 adapters (no OS), `scan` = 721 pkgs (≈ python 718), `check` finds updates, `report`/`update --dry-run`/`self`/`doctor` all work, 6 unit tests pass, `cargo clippy` + release build clean, 0 OS references.

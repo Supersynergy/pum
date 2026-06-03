@@ -51,5 +51,6 @@ brew · npm · pnpm · bun · uv · pipx · cargo · rustup · gem · go · mise
 
 ## Requirements
 
-Python 3.11+ · No third-party dependencies (stdlib only).
-Optional: `uv` for `uv sync` / console entry install; `ruff` for linting.
+Rust 1.85+ (edition 2024) to build · zero runtime deps (single static binary).
+Build/lint via cargo: `cargo build --release`, `cargo clippy`, `cargo test`.
+Adapters auto-activate only for managers present on your `PATH`.

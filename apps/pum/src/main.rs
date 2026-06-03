@@ -195,7 +195,7 @@ fn cmd_scan() -> Result<()> {
     }
     println!("\n{} — {} packages\n", c("pum scan", BOLD), pkgs.len());
     let mut sorted: Vec<_> = by_mgr.into_iter().collect();
-    sorted.sort_by(|a, b| b.1.cmp(&a.1));
+    sorted.sort_by_key(|x| std::cmp::Reverse(x.1));
     let line: Vec<String> = sorted.iter().map(|(m, n)| format!("{m} {n}")).collect();
     println!("  {}", line.join(" · "));
     if !errs.is_empty() {
@@ -492,7 +492,7 @@ enum Cmd {
     },
     /// Check/update the managers themselves
     #[command(name = "self")]
-    SelfCmd {
+    SelfUpdate {
         #[arg(long)]
         apply: bool,
     },
@@ -517,7 +517,7 @@ fn main() {
             dry_run,
             apply,
         } => cmd_update(&packages, manager.as_deref(), all, dry_run, apply),
-        Cmd::SelfCmd { apply } => cmd_self(apply),
+        Cmd::SelfUpdate { apply } => cmd_self(apply),
         Cmd::Doctor => cmd_doctor(),
     };
     if let Err(e) = result {
