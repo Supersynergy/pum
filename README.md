@@ -22,7 +22,13 @@ pum update --dry-run --all # preview upgrades (mutates nothing)
 pum update --manager brew  # upgrade one manager's packages
 pum self                   # show manager self-update commands
 pum self --apply
+
+pum project [path]         # outdated PROJECT deps (package.json/Cargo.toml; default cwd)
+pum audit   [path]         # CVE/GHSA scan of a project's deps via OSV.dev
 ```
+
+> `scan`/`check` cover **globally** installed tools. `project`/`audit` cover a **repo's
+> own dependencies** (the manifest) — the two scopes are intentionally separate.
 
 Inventory DB: `$PUM_DB` or `~/.local/share/pum/inventory.db` (+ `inventory.json`).
 

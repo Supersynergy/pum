@@ -51,6 +51,43 @@ pub fn run_default(argv: &[&str]) -> (i32, String, String) {
     run(argv, SUBPROCESS_TIMEOUT)
 }
 
+/// Like `run`, but executes inside `dir` (for project-scoped manifest scans).
+/// Same timeout/never-panic guarantees as `run`.
+pub fn run_in(dir: &std::path::Path, argv: &[&str], timeout_secs: u64) -> (i32, String, String) {
+    let Some((prog, args)) = argv.split_first() else {
+        return (-1, String::new(), "empty argv".to_string());
+    };
+    let prog_owned = prog.to_string();
+    let args_owned: Vec<String> = args.iter().map(|s| s.to_string()).collect();
+    let dir_owned = dir.to_path_buf();
+
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let result = Command::new(&prog_owned)
+            .args(&args_owned)
+            .current_dir(&dir_owned)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output();
+        let _ = tx.send(result);
+    });
+
+    match rx.recv_timeout(Duration::from_secs(timeout_secs)) {
+        Ok(Ok(out)) => {
+            let code = out.status.code().unwrap_or(-1);
+            let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
+            let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
+            (code, stdout, stderr)
+        }
+        Ok(Err(e)) => (-1, String::new(), e.to_string()),
+        Err(_) => (
+            -1,
+            String::new(),
+            format!("timeout after {}s", timeout_secs),
+        ),
+    }
+}
+
 pub fn which_exists(name: &str) -> bool {
     which::which(name).is_ok()
 }

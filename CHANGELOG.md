@@ -5,6 +5,12 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — project-local scanning + security audit (2026-06-06)
+- **`pum project [path]`** — scans a repo's manifest for outdated **project** dependencies. The 12 global adapters only ever saw `-g` installs, so deps declared in a `package.json`/`Cargo.toml` were a blind spot (e.g. an app pinned to `zod@3` / `date-fns@3` showed nothing). Detects the ecosystem by lockfile and runs the native checker: bun (`bun outdated` table), pnpm/npm (`--json`), cargo (`cargo outdated --format json`). Verified live: found 10 outdated deps in a real Next.js project that `pum check` reported as clean.
+- **`pum audit [path]`** — ghmax-style CVE/GHSA intel: queries the free **OSV.dev** batch API for known vulnerabilities affecting the exact installed versions (`bun pm ls` → OSV `querybatch` via `curl`, keeping pum a zero-HTTP-dep static binary). Verified live against OSV (clean project → no advisories; parse/index-mapping covered by unit test).
+- New modules `src/project.rs` + `src/audit.rs` (pure parse fns + 6 unit tests); both wrapped so a missing/broken project toolchain never aborts pum. `run::run_in` added for cwd-scoped subprocess calls.
+- Gates: `cargo fmt --check` clean · `cargo clippy --all-targets -D warnings` clean · 13 tests pass.
+
 ### Fixed — lint + reliability hardening (2026-06-03)
 - **clippy now actually clean** (`cargo clippy --all-targets`, 0 warnings). The prior "clippy clean" claim had drifted: 5 lints had crept in. Fixed: `sort_by` → `sort_by_key(Reverse)`, collapsible-`if` ×2, manual-char-compare, and `enum Cmd` variant `SelfCmd` → `SelfUpdate` (CLI name still pinned to `self` via `#[command(name = "self")]`, verified).
 - **run.rs hardening:** replaced a guarded `split_first().unwrap()` with `let-else` (dedups the empty-argv check, removes the unwrap); documented the intentional `tx.send` error-ignore. Debugmaster audit: Grade A (97/100), Release SHIP, 0 critical/high.

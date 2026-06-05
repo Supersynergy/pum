@@ -2,6 +2,8 @@
 //! Mac-first CLI: scan every package manager + dev tool, inventory versions, check
 //! updates, update per-tool or all. Packages & tools only — never the OS.
 mod adapters;
+mod audit;
+mod project;
 mod run;
 mod types;
 
@@ -450,6 +452,97 @@ fn cmd_self(apply: bool) -> Result<()> {
     Ok(())
 }
 
+fn resolve_dir(path: Option<&str>) -> PathBuf {
+    match path {
+        Some(p) => PathBuf::from(p),
+        None => std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
+    }
+}
+
+fn cmd_project(path: Option<&str>) -> Result<()> {
+    let dir = resolve_dir(path);
+    println!(
+        "\n{} — {}\n",
+        c("pum project", BOLD),
+        c(&dir.display().to_string(), DIM)
+    );
+    // A broken/absent toolchain in the project must never abort pum.
+    let pkgs =
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| project::scan_project(&dir)))
+            .unwrap_or_default();
+
+    let outdated: Vec<_> = pkgs
+        .iter()
+        .filter(|p| p.status.as_deref() == Some("outdated"))
+        .collect();
+    if outdated.is_empty() {
+        println!("  {} no outdated project dependencies\n", c("✓", GREEN));
+        return Ok(());
+    }
+
+    let w_pkg = outdated
+        .iter()
+        .map(|p| p.name.len())
+        .max()
+        .unwrap_or(7)
+        .max(7);
+    let w_inst = outdated
+        .iter()
+        .map(|p| p.installed.len())
+        .max()
+        .unwrap_or(9)
+        .max(9);
+    for p in &outdated {
+        println!(
+            "  {} {:<6} {:<w_pkg$}  {:<w_inst$} → {}",
+            c("!", YELLOW),
+            p.manager,
+            p.name,
+            p.installed,
+            c(p.latest.as_deref().unwrap_or("—"), YELLOW),
+        );
+    }
+    println!(
+        "\n  {} update(s) available\n",
+        c(&outdated.len().to_string(), YELLOW)
+    );
+    Ok(())
+}
+
+fn cmd_audit(path: Option<&str>) -> Result<()> {
+    let dir = resolve_dir(path);
+    println!(
+        "\n{} — {} {}\n",
+        c("pum audit", BOLD),
+        c(&dir.display().to_string(), DIM),
+        c("(OSV.dev)", DIM)
+    );
+    match audit::audit_project(&dir) {
+        Ok(vulns) if vulns.is_empty() => {
+            println!("  {} no known vulnerabilities\n", c("✓", GREEN));
+        }
+        Ok(vulns) => {
+            for v in &vulns {
+                println!(
+                    "  {} {}@{}  {}",
+                    c("⚠", RED),
+                    v.package,
+                    v.version,
+                    c(&v.ids.join(", "), YELLOW),
+                );
+            }
+            let total: usize = vulns.iter().map(|v| v.ids.len()).sum();
+            println!(
+                "\n  {} advisory(ies) across {} package(s)\n",
+                c(&total.to_string(), RED),
+                vulns.len()
+            );
+        }
+        Err(e) => println!("  {} {}\n", c("audit failed:", RED), e),
+    }
+    Ok(())
+}
+
 // ── cli ───────────────────────────────────────────────────────────────────--
 #[derive(Parser)]
 #[command(
@@ -498,6 +591,16 @@ enum Cmd {
     },
     /// Which adapters are live on this host
     Doctor,
+    /// Scan a project's manifest for outdated dependencies (default: cwd)
+    Project {
+        /// Project directory (defaults to the current directory)
+        path: Option<String>,
+    },
+    /// Security-audit a project's dependencies against OSV.dev (CVE/GHSA)
+    Audit {
+        /// Project directory (defaults to the current directory)
+        path: Option<String>,
+    },
 }
 
 fn main() {
@@ -519,6 +622,8 @@ fn main() {
         } => cmd_update(&packages, manager.as_deref(), all, dry_run, apply),
         Cmd::SelfUpdate { apply } => cmd_self(apply),
         Cmd::Doctor => cmd_doctor(),
+        Cmd::Project { path } => cmd_project(path.as_deref()),
+        Cmd::Audit { path } => cmd_audit(path.as_deref()),
     };
     if let Err(e) = result {
         eprintln!("{} {e}", c("error:", RED));
@@ -589,5 +694,80 @@ mod tests {
         let out = adapters::mise::parse_mise_outdated("node 22.1.0 22.2.0 ~/x\n");
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].latest.as_deref(), Some("22.2.0"));
+    }
+
+    // ── project + audit (the global-scan blind spot fix) ───────────────────────
+    #[test]
+    fn bun_outdated_table_parses() {
+        let s = "| Package            | Current | Update  | Latest  |\n\
+                 |--------------------|---------|---------|---------|\n\
+                 | date-fns           | 3.6.0   | 3.6.0   | 4.4.0   |\n\
+                 | @types/react (dev) | 19.2.16 | 19.2.17 | 19.2.17 |\n\
+                 | zod                | 3.25.76 | 3.25.76 | 3.25.76 |\n";
+        let p = crate::project::parse_bun_outdated(s, "/proj");
+        assert_eq!(p.len(), 2, "only the two changed rows are outdated");
+        let df = p.iter().find(|x| x.name == "date-fns").unwrap();
+        assert_eq!(df.installed, "3.6.0");
+        assert_eq!(df.latest.as_deref(), Some("4.4.0"));
+        assert_eq!(df.manager, "bun");
+        assert!(
+            p.iter().any(|x| x.name == "@types/react"),
+            "(dev) marker stripped"
+        );
+    }
+
+    #[test]
+    fn bun_outdated_garbage_is_empty() {
+        assert!(crate::project::parse_bun_outdated("", "/p").is_empty());
+        assert!(crate::project::parse_bun_outdated("no pipes here", "/p").is_empty());
+    }
+
+    #[test]
+    fn npm_like_json_parses() {
+        let s = r#"{"left-pad":{"current":"1.0.0","wanted":"1.3.0","latest":"1.3.0"},"ok":{"current":"2.0.0","wanted":"2.0.0","latest":"2.0.0"}}"#;
+        let p = crate::project::parse_npm_like_json(s, "npm", "/proj");
+        assert_eq!(p.len(), 1);
+        assert_eq!(p[0].name, "left-pad");
+        assert_eq!(p[0].latest.as_deref(), Some("1.3.0"));
+    }
+
+    #[test]
+    fn cargo_outdated_json_parses() {
+        let s = r#"{"dependencies":[{"name":"serde","project":"1.0.1","latest":"1.0.5"},{"name":"anyhow","project":"1.0.0","latest":"1.0.0"},{"name":"foo","project":"0.1.0","latest":"---"}]}"#;
+        let p = crate::project::parse_cargo_outdated_json(s, "/proj");
+        assert_eq!(p.len(), 1);
+        assert_eq!(p[0].name, "serde");
+        assert_eq!(p[0].latest.as_deref(), Some("1.0.5"));
+    }
+
+    #[test]
+    fn bun_ls_parses_scoped() {
+        let s = "supercalendar@2.0.1\n├── @dnd-kit/core@6.3.1\n├── zod@3.25.76\n└── node_modules (1234)\n";
+        let d = crate::audit::parse_bun_ls(s);
+        assert!(d.contains(&("@dnd-kit/core".to_string(), "6.3.1".to_string())));
+        assert!(d.contains(&("zod".to_string(), "3.25.76".to_string())));
+        assert!(!d.iter().any(|(n, _)| n.contains("node_modules")));
+    }
+
+    #[test]
+    fn osv_batch_maps_by_index() {
+        let deps = vec![
+            ("left-pad".to_string(), "1.0.0".to_string()),
+            ("safe".to_string(), "2.0.0".to_string()),
+        ];
+        let resp = r#"{"results":[{"vulns":[{"id":"GHSA-aaaa-bbbb-cccc"}]},{}]}"#;
+        let v = crate::audit::parse_osv_batch(resp, &deps);
+        assert_eq!(v.len(), 1);
+        assert_eq!(v[0].package, "left-pad");
+        assert_eq!(v[0].ids, vec!["GHSA-aaaa-bbbb-cccc".to_string()]);
+    }
+
+    #[test]
+    fn osv_body_builds() {
+        let deps = vec![("zod".to_string(), "3.25.76".to_string())];
+        let body = crate::audit::build_osv_body(&deps, "npm");
+        assert!(body.contains("\"ecosystem\":\"npm\""));
+        assert!(body.contains("\"name\":\"zod\""));
+        assert!(body.contains("\"version\":\"3.25.76\""));
     }
 }
