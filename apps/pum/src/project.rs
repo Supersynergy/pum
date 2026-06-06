@@ -5,10 +5,59 @@
 //! manifest in a given directory and runs the ecosystem's native `outdated` command.
 use std::path::Path;
 
+use serde::Serialize;
 use serde_json::Value;
 
-use crate::run::run_in;
+use crate::run::{run, run_in};
 use crate::types::Package;
+
+/// An outdated project dependency, optionally flagged as deprecated upstream.
+#[derive(Debug, Clone, Serialize)]
+pub struct ProjectDep {
+    pub manager: String,
+    pub name: String,
+    pub installed: String,
+    pub latest: String,
+    pub deprecated: Option<String>,
+}
+
+/// Enrich outdated packages with upstream deprecation notes.
+/// Runs in parallel; only node-ecosystem packages are checked (npm registry).
+pub fn enrich(outdated: &[Package]) -> Vec<ProjectDep> {
+    use rayon::prelude::*;
+    outdated
+        .par_iter()
+        .map(|p| {
+            let deprecated = if matches!(p.manager.as_str(), "bun" | "npm" | "pnpm") {
+                npm_deprecation(&p.name, &p.installed)
+            } else {
+                None
+            };
+            ProjectDep {
+                manager: p.manager.clone(),
+                name: p.name.clone(),
+                installed: p.installed.clone(),
+                latest: p.latest.clone().unwrap_or_default(),
+                deprecated,
+            }
+        })
+        .collect()
+}
+
+/// `npm view <name>@<version> deprecated` → the deprecation message, if any.
+fn npm_deprecation(name: &str, version: &str) -> Option<String> {
+    let spec = format!("{name}@{version}");
+    let (rc, out, _) = run(&["npm", "view", &spec, "deprecated"], 30);
+    if rc != 0 {
+        return None;
+    }
+    let t = out.trim();
+    if t.is_empty() {
+        None
+    } else {
+        Some(t.to_string())
+    }
+}
 
 /// Scan a project directory for outdated dependencies across detected ecosystems.
 pub fn scan_project(dir: &Path) -> Vec<Package> {

@@ -459,76 +459,108 @@ fn resolve_dir(path: Option<&str>) -> PathBuf {
     }
 }
 
-fn cmd_project(path: Option<&str>) -> Result<()> {
+fn cmd_project(path: Option<&str>, json: bool) -> Result<()> {
     let dir = resolve_dir(path);
+    // A broken/absent toolchain in the project must never abort pum.
+    let pkgs =
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| project::scan_project(&dir)))
+            .unwrap_or_default();
+    let outdated: Vec<_> = pkgs
+        .into_iter()
+        .filter(|p| p.status.as_deref() == Some("outdated"))
+        .collect();
+    let deps = project::enrich(&outdated);
+
+    if json {
+        println!("{}", serde_json::to_string_pretty(&deps)?);
+        return Ok(());
+    }
+
     println!(
         "\n{} — {}\n",
         c("pum project", BOLD),
         c(&dir.display().to_string(), DIM)
     );
-    // A broken/absent toolchain in the project must never abort pum.
-    let pkgs =
-        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| project::scan_project(&dir)))
-            .unwrap_or_default();
-
-    let outdated: Vec<_> = pkgs
-        .iter()
-        .filter(|p| p.status.as_deref() == Some("outdated"))
-        .collect();
-    if outdated.is_empty() {
+    if deps.is_empty() {
         println!("  {} no outdated project dependencies\n", c("✓", GREEN));
         return Ok(());
     }
 
-    let w_pkg = outdated
-        .iter()
-        .map(|p| p.name.len())
-        .max()
-        .unwrap_or(7)
-        .max(7);
-    let w_inst = outdated
+    let w_pkg = deps.iter().map(|p| p.name.len()).max().unwrap_or(7).max(7);
+    let w_inst = deps
         .iter()
         .map(|p| p.installed.len())
         .max()
         .unwrap_or(9)
         .max(9);
-    for p in &outdated {
+    for p in &deps {
+        let note = if p.deprecated.is_some() {
+            format!("  {}", c("[deprecated]", RED))
+        } else {
+            String::new()
+        };
         println!(
-            "  {} {:<6} {:<w_pkg$}  {:<w_inst$} → {}",
+            "  {} {:<6} {:<w_pkg$}  {:<w_inst$} → {}{}",
             c("!", YELLOW),
             p.manager,
             p.name,
             p.installed,
-            c(p.latest.as_deref().unwrap_or("—"), YELLOW),
+            c(&p.latest, YELLOW),
+            note,
         );
     }
+    let dep_count = deps.iter().filter(|p| p.deprecated.is_some()).count();
+    let tail = if dep_count > 0 {
+        format!(", {}", c(&format!("{dep_count} deprecated"), RED))
+    } else {
+        String::new()
+    };
     println!(
-        "\n  {} update(s) available\n",
-        c(&outdated.len().to_string(), YELLOW)
+        "\n  {} update(s) available{}\n",
+        c(&deps.len().to_string(), YELLOW),
+        tail
     );
     Ok(())
 }
 
-fn cmd_audit(path: Option<&str>) -> Result<()> {
+fn cmd_audit(path: Option<&str>, json: bool) -> Result<()> {
     let dir = resolve_dir(path);
+    let result = audit::audit_project(&dir);
+
+    if json {
+        match result {
+            Ok(vulns) => println!("{}", serde_json::to_string_pretty(&vulns)?),
+            Err(e) => println!("{}", serde_json::json!({ "error": e })),
+        }
+        return Ok(());
+    }
+
     println!(
         "\n{} — {} {}\n",
         c("pum audit", BOLD),
         c(&dir.display().to_string(), DIM),
         c("(OSV.dev)", DIM)
     );
-    match audit::audit_project(&dir) {
+    match result {
         Ok(vulns) if vulns.is_empty() => {
             println!("  {} no known vulnerabilities\n", c("✓", GREEN));
         }
         Ok(vulns) => {
             for v in &vulns {
+                let sev = v.severity.as_deref().unwrap_or("?");
+                let fix = if v.fixed.is_empty() {
+                    "no fix".to_string()
+                } else {
+                    format!("fix: {}", v.fixed.join(", "))
+                };
                 println!(
-                    "  {} {}@{}  {}",
+                    "  {} {}@{}  [{}]  {}  {}",
                     c("⚠", RED),
                     v.package,
                     v.version,
+                    c(sev, RED),
                     c(&v.ids.join(", "), YELLOW),
+                    c(&fix, DIM),
                 );
             }
             let total: usize = vulns.iter().map(|v| v.ids.len()).sum();
@@ -595,11 +627,15 @@ enum Cmd {
     Project {
         /// Project directory (defaults to the current directory)
         path: Option<String>,
+        #[arg(long)]
+        json: bool,
     },
     /// Security-audit a project's dependencies against OSV.dev (CVE/GHSA)
     Audit {
         /// Project directory (defaults to the current directory)
         path: Option<String>,
+        #[arg(long)]
+        json: bool,
     },
 }
 
@@ -622,8 +658,8 @@ fn main() {
         } => cmd_update(&packages, manager.as_deref(), all, dry_run, apply),
         Cmd::SelfUpdate { apply } => cmd_self(apply),
         Cmd::Doctor => cmd_doctor(),
-        Cmd::Project { path } => cmd_project(path.as_deref()),
-        Cmd::Audit { path } => cmd_audit(path.as_deref()),
+        Cmd::Project { path, json } => cmd_project(path.as_deref(), json),
+        Cmd::Audit { path, json } => cmd_audit(path.as_deref(), json),
     };
     if let Err(e) = result {
         eprintln!("{} {e}", c("error:", RED));
@@ -769,5 +805,13 @@ mod tests {
         assert!(body.contains("\"ecosystem\":\"npm\""));
         assert!(body.contains("\"name\":\"zod\""));
         assert!(body.contains("\"version\":\"3.25.76\""));
+    }
+
+    #[test]
+    fn osv_detail_parses_severity_and_fixed() {
+        let s = r#"{"id":"GHSA-x","database_specific":{"severity":"HIGH"},"affected":[{"ranges":[{"type":"SEMVER","events":[{"introduced":"0"},{"fixed":"1.2.3"}]}]}]}"#;
+        let (sev, fixed) = crate::audit::parse_osv_detail(s);
+        assert_eq!(sev.as_deref(), Some("HIGH"));
+        assert_eq!(fixed, vec!["1.2.3".to_string()]);
     }
 }

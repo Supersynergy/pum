@@ -24,7 +24,9 @@ pum self                   # show manager self-update commands
 pum self --apply
 
 pum project [path]         # outdated PROJECT deps (package.json/Cargo.toml; default cwd)
-pum audit   [path]         # CVE/GHSA scan of a project's deps via OSV.dev
+pum project --json         # machine-readable (deprecated packages flagged [deprecated])
+pum audit   [path]         # CVE/GHSA scan via OSV.dev (severity + fix version)
+pum audit   --json         # machine-readable advisories for CI gates
 ```
 
 > `scan`/`check` cover **globally** installed tools. `project`/`audit` cover a **repo's

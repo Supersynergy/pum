@@ -1,19 +1,22 @@
 //! Security audit — ghmax-style CVE/GHSA intel for a project's dependencies.
 //!
-//! Queries the free OSV.dev batch API (no auth) for known vulnerabilities affecting
-//! the exact installed versions. Uses `curl` via the subprocess runner to keep pum a
-//! single static binary with zero HTTP runtime deps.
+//! Queries the free OSV.dev API (no auth) for known vulnerabilities affecting the exact
+//! installed versions, then enriches each advisory with severity + fixed version. Uses
+//! `curl` via the subprocess runner to keep pum a single static binary (zero HTTP deps).
 use std::path::Path;
 
+use serde::Serialize;
 use serde_json::{Value, json};
 
 use crate::run::{run, run_in};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct Vuln {
     pub package: String,
     pub version: String,
     pub ids: Vec<String>,
+    pub severity: Option<String>,
+    pub fixed: Vec<String>,
 }
 
 /// Audit a project's node dependencies against the OSV database.
@@ -45,7 +48,32 @@ pub fn audit_project(dir: &Path) -> Result<Vec<Vuln>, String> {
         let msg = if err.is_empty() { resp } else { err };
         return Err(msg.lines().next().unwrap_or("curl failed").to_string());
     }
-    Ok(parse_osv_batch(&resp, &deps))
+
+    let mut vulns = parse_osv_batch(&resp, &deps);
+    // Enrich: the batch endpoint returns only ids; fetch each advisory for severity + fix.
+    for v in vulns.iter_mut() {
+        let mut severity: Option<String> = None;
+        let mut fixed: Vec<String> = Vec::new();
+        for id in &v.ids {
+            let url = format!("https://api.osv.dev/v1/vulns/{id}");
+            let (drc, dresp, _) = run(&["curl", "-sS", "--max-time", "20", &url], 25);
+            if drc != 0 {
+                continue;
+            }
+            let (sev, fx) = parse_osv_detail(&dresp);
+            if severity.is_none() {
+                severity = sev;
+            }
+            for f in fx {
+                if !fixed.contains(&f) {
+                    fixed.push(f);
+                }
+            }
+        }
+        v.severity = severity;
+        v.fixed = fixed;
+    }
+    Ok(vulns)
 }
 
 /// Parse `bun pm ls` into (name, version) pairs (handles scoped packages).
@@ -59,7 +87,6 @@ pub fn parse_bun_ls(out: &str) -> Vec<(String, String)> {
         }
         let name = &line[..at];
         let ver = &line[at + 1..];
-        // Version must start with a digit; name must be a single token.
         if name.contains(char::is_whitespace) {
             continue;
         }
@@ -81,8 +108,7 @@ pub fn build_osv_body(deps: &[(String, String)], ecosystem: &str) -> String {
     json!({ "queries": queries }).to_string()
 }
 
-/// Parse the OSV `querybatch` response. Results are returned in query order, so the
-/// index maps back to `deps`.
+/// Parse the OSV `querybatch` response. Results are in query order → index maps to deps.
 pub fn parse_osv_batch(resp: &str, deps: &[(String, String)]) -> Vec<Vuln> {
     let data: Value = match serde_json::from_str(resp) {
         Ok(v) => v,
@@ -106,9 +132,58 @@ pub fn parse_osv_batch(resp: &str, deps: &[(String, String)]) -> Vec<Vuln> {
                     package: name.clone(),
                     version: ver.clone(),
                     ids,
+                    severity: None,
+                    fixed: Vec::new(),
                 });
             }
         }
     }
     out
+}
+
+/// Parse an OSV advisory detail → (severity label, fixed versions).
+pub fn parse_osv_detail(json_str: &str) -> (Option<String>, Vec<String>) {
+    let data: Value = match serde_json::from_str(json_str) {
+        Ok(v) => v,
+        Err(_) => return (None, vec![]),
+    };
+
+    // Prefer the human label (e.g. "HIGH"); fall back to the CVSS vector/score.
+    let mut severity = data
+        .get("database_specific")
+        .and_then(|d| d.get("severity"))
+        .and_then(|s| s.as_str())
+        .map(String::from);
+    if severity.is_none() {
+        severity = data
+            .get("severity")
+            .and_then(|s| s.as_array())
+            .and_then(|a| a.first())
+            .and_then(|x| x.get("score"))
+            .and_then(|s| s.as_str())
+            .map(String::from);
+    }
+
+    let mut fixed = Vec::new();
+    if let Some(affected) = data.get("affected").and_then(|a| a.as_array()) {
+        for aff in affected {
+            let Some(ranges) = aff.get("ranges").and_then(|r| r.as_array()) else {
+                continue;
+            };
+            for rng in ranges {
+                let Some(events) = rng.get("events").and_then(|e| e.as_array()) else {
+                    continue;
+                };
+                for ev in events {
+                    if let Some(fx) = ev.get("fixed").and_then(|f| f.as_str()) {
+                        let fx = fx.to_string();
+                        if !fixed.contains(&fx) {
+                            fixed.push(fx);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    (severity, fixed)
 }

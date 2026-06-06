@@ -11,6 +11,12 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - New modules `src/project.rs` + `src/audit.rs` (pure parse fns + 6 unit tests); both wrapped so a missing/broken project toolchain never aborts pum. `run::run_in` added for cwd-scoped subprocess calls.
 - Gates: `cargo fmt --check` clean · `cargo clippy --all-targets -D warnings` clean · 13 tests pass.
 
+### Added — project/audit enrichment + JSON (2026-06-06)
+- **`pum audit` now shows severity + fix version** — each advisory is enriched from the OSV detail endpoint (`/v1/vulns/<id>`): severity label (e.g. `HIGH`) and the version(s) that fix it. `parse_osv_detail` is a pure fn with a unit test.
+- **`pum project` flags deprecated packages** — outdated node deps are checked against the npm registry (`npm view <pkg>@<ver> deprecated`, run in parallel via rayon); deprecated ones are marked `[deprecated]` and counted.
+- **`--json` on `pum project` and `pum audit`** — machine-readable output for CI gates (serde-serialized `ProjectDep` / `Vuln`).
+- Verified live: `pum project --json` emits the dependency array; `pum audit` runs the OSV detail enrichment. 14 unit tests pass; clippy + fmt clean.
+
 ### Fixed — lint + reliability hardening (2026-06-03)
 - **clippy now actually clean** (`cargo clippy --all-targets`, 0 warnings). The prior "clippy clean" claim had drifted: 5 lints had crept in. Fixed: `sort_by` → `sort_by_key(Reverse)`, collapsible-`if` ×2, manual-char-compare, and `enum Cmd` variant `SelfCmd` → `SelfUpdate` (CLI name still pinned to `self` via `#[command(name = "self")]`, verified).
 - **run.rs hardening:** replaced a guarded `split_first().unwrap()` with `let-else` (dedups the empty-argv check, removes the unwrap); documented the intentional `tx.send` error-ignore. Debugmaster audit: Grade A (97/100), Release SHIP, 0 critical/high.
