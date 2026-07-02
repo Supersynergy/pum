@@ -64,10 +64,17 @@ script or an AI agent can consume directly.
 
 ## Quick Start
 
-No Rust toolchain needed — prebuilt binary via shell installer:
+No Rust toolchain needed — prebuilt binary, pick one:
 
 ```bash
+# Homebrew (macOS/Linux)
+brew install Supersynergy/pum/pum
+
+# or the shell installer
 curl --proto '=https' --tlsv1.2 -LsSf https://github.com/Supersynergy/pum/releases/latest/download/pum-installer.sh | sh
+```
+
+```bash
 pum doctor                      # which managers are live on this machine
 ```
 
