@@ -53,7 +53,7 @@ jobs:
       - name: Build (release)
         run: cargo build --release
 
-      - name: Doctor (dogfood: which adapters are live on the runner)
+      - name: "Doctor (dogfood: which adapters are live on the runner)"
         run: ./target/release/pum doctor
 
   audit:
