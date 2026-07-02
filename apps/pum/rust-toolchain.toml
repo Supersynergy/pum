@@ -1,0 +1,6 @@
+# Pin the toolchain so every checkout, CI run, and contributor builds with the
+# same compiler. Bump deliberately alongside a verified `cargo clippy`/test pass.
+[toolchain]
+channel = "1.96.1"
+components = ["rustfmt", "clippy"]
+profile = "minimal"

@@ -1,16 +1,51 @@
+<p align="center">
+  <img src="docs/assets/social-preview.png" alt="pum — package update manager for humans and AI agents" width="100%">
+</p>
+
 # pum — Package Update Manager
 
-Unified multi-manager package inventory and update tool. Single static **Rust** binary,
-zero runtime deps. Adapter-based: only managers present on your PATH are activated.
+> Unified update manager for humans and AI coding agents — one static Rust binary,
+> 12 package-manager adapters, `--json` on every command so agents parse it without scraping text.
 
-## Install
+[![Release](https://img.shields.io/github/v/release/Supersynergy/pum)](https://github.com/Supersynergy/pum/releases)
+[![License](https://img.shields.io/github/license/Supersynergy/pum)](LICENSE)
+[![CI](https://img.shields.io/github/actions/workflow/status/Supersynergy/pum/ci.yml)](https://github.com/Supersynergy/pum/actions)
 
-```bash
-cargo install --path apps/pum     # → ~/.cargo/bin/pum
-# or:  just install
-```
+[Changelog](CHANGELOG.md) · [Spec](docs/SPEC.md) · [Releases](https://github.com/Supersynergy/pum/releases) · [Issues](https://github.com/Supersynergy/pum/issues)
+
+## Why
+
+Every machine running more than one package manager (brew + npm + cargo + uv...) needs
+one place to ask "what's outdated" and "is any of this vulnerable" — without shelling
+out to twelve different tools with twelve different output formats. `pum` gives both a
+human at a terminal and an AI agent driving that terminal the same single, scriptable
+answer. It's also the tool an agent should run *before* touching a repo's dependencies:
+`pum project` and `pum audit` catch outdated/vulnerable manifest deps that the global
+adapters never see.
+
+## Features
+
+| Feature | Why it matters |
+|---|---|
+| 12 adapters (brew, npm, pnpm, bun, uv, pipx, cargo, rustup, gem, go, mise, gh) | One command instead of twelve; only managers present on `PATH` activate |
+| `--json` on every read command | Agents and CI parse structured output, never scrape a table |
+| `pum project` / `pum audit` | Scans a **repo's own** manifest deps (not just global installs) and flags CVEs via OSV.dev |
+| SQLite inventory, status-preserving upsert | `scan` never wipes a prior `check` result; multiple installed versions of one tool persist |
+| Single static binary, zero runtime deps | Doesn't depend on the Python/Node runtimes it's meant to update |
+| Packages & dev tools only, by design | No OS updater adapter — `pum` never triggers a reboot |
 
 ## Quick Start
+
+```bash
+git clone https://github.com/Supersynergy/pum
+cd pum
+cargo install --path apps/pum   # → ~/.cargo/bin/pum
+pum doctor                      # which managers are live on this machine
+```
+
+Expected result: a table of the managers found on your `PATH`, each marked `live`.
+
+## Usage
 
 ```bash
 pum doctor                 # which managers are live
@@ -32,9 +67,23 @@ pum audit   --json         # machine-readable advisories for CI gates
 > `scan`/`check` cover **globally** installed tools. `project`/`audit` cover a **repo's
 > own dependencies** (the manifest) — the two scopes are intentionally separate.
 
-Inventory DB: `$PUM_DB` or `~/.local/share/pum/inventory.db` (+ `inventory.json`).
+Inventory DB: `$PUM_DB` or `~/.local/share/pum/inventory.db` (+ `inventory.json` mirror,
+written on every `pum scan`).
 
-Dev via just (runs from source):
+## Architecture
+
+```mermaid
+flowchart LR
+  CLI[pum CLI] --> Reg[Adapter registry]
+  Reg --> A1[brew / npm / pnpm / bun]
+  Reg --> A2[uv / pipx / cargo / rustup]
+  Reg --> A3[gem / go / mise / gh]
+  A1 & A2 & A3 --> DB[(SQLite inventory)]
+  CLI --> Project[project / audit]
+  Project --> OSV[OSV.dev CVE lookup]
+```
+
+Dev via `just` (runs from source):
 
 ```bash
 just build · just doctor · just scan · just check · just report --outdated · just test · just ci
@@ -44,21 +93,35 @@ just build · just doctor · just scan · just check · just report --outdated �
 
 pum updates Python tooling (uv, pipx) — a Python implementation would depend on the very
 runtime it manages. A self-contained Rust binary has zero runtime deps, matching the
-direct peers (topgrade, mise, uv). See `CHANGELOG.md` (Python v0 → Rust port).
-
-## Adapters
-
-brew · npm · pnpm · bun · uv · pipx · cargo · rustup · gem · go · mise · gh
-
-> Packages & developer tools only. The macOS OS updater (`softwareupdate`) is **excluded by design** — pum never scans or installs OS updates (reboot risk).
-
-## Data
-
-- `data/inventory.db` — SQLite, table `tools(manager, name, installed, latest, status, source, checked_at)`
-- `data/inventory.json` — JSON mirror, written on every `pum scan`
+direct peers (topgrade, mise, uv). See [CHANGELOG.md](CHANGELOG.md) (Python v0 → Rust port).
 
 ## Requirements
 
-Rust 1.85+ (edition 2024) to build · zero runtime deps (single static binary).
-Build/lint via cargo: `cargo build --release`, `cargo clippy`, `cargo test`.
-Adapters auto-activate only for managers present on your `PATH`.
+Rust 1.96+ (edition 2024, pinned in `apps/pum/rust-toolchain.toml`) to build · zero
+runtime deps once built (single static binary). Adapters auto-activate only for
+managers present on your `PATH`.
+
+## Development
+
+```bash
+cd apps/pum
+cargo test
+cargo clippy --all-targets -- -D warnings && cargo fmt --check
+cargo deny check
+```
+
+## Release
+
+See [CHANGELOG.md](CHANGELOG.md) and [Releases](https://github.com/Supersynergy/pum/releases).
+
+## Security
+
+Report vulnerabilities privately. See [SECURITY.md](SECURITY.md).
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## License
+
+[MIT](LICENSE) © Maxim M.

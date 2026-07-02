@@ -1,0 +1,21 @@
+# cargo-deny supply-chain gate. Run from apps/pum/: `cargo deny check` (or `just audit`).
+# https://embarkstudios.github.io/cargo-deny/
+
+[advisories]
+version = 2
+# Fail on any RUSTSEC advisory; fail on yanked crates.
+yanked = "deny"
+ignore = []
+
+[licenses]
+version = 2
+# Exactly the permissive licenses present in the dependency tree (warning-clean).
+# A new dep with a different license will fail CI loudly — add it here deliberately.
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Unicode-3.0",
+    "Unlicense",
+    "BSD-2-Clause",
+]
+confidence-threshold = 0.8

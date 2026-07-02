@@ -1,0 +1,67 @@
+name: ci
+
+# Runs on GitHub Actions and Gitea Actions (act_runner reads .github/workflows).
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: "-D warnings"
+
+defaults:
+  run:
+    working-directory: apps/pum
+
+jobs:
+  check:
+    name: fmt + clippy + test + build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      # apps/pum/rust-toolchain.toml pins the channel (1.96.1) + components.
+      - name: Show toolchain
+        run: |
+          rustc --version
+          cargo --version
+
+      - name: Cache cargo
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            apps/pum/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('apps/pum/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      - name: Format
+        run: cargo fmt --all --check
+
+      - name: Clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+      - name: Test
+        run: cargo test --all-features
+
+      - name: Build (release)
+        run: cargo build --release
+
+      - name: Doctor (dogfood: which adapters are live on the runner)
+        run: ./target/release/pum doctor
+
+  audit:
+    name: cargo-deny (advisories + licenses)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: cargo-deny
+        uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          manifest-path: apps/pum/Cargo.toml

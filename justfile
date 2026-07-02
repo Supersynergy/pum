@@ -51,5 +51,9 @@ check-code:
 fmt:
     cd {{crate}} && cargo fmt
 
+# Supply-chain audit (advisories + license allow-list)
+audit:
+    cd {{crate}} && cargo deny check
+
 # Full gate
-ci: test check-code
+ci: test check-code audit

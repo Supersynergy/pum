@@ -2,8 +2,16 @@
 name = "pum"
 version = "0.1.0"
 edition = "2024"
-description = "Package Update Manager — adapter-based multi-manager update tool (Rust port)"
+description = "Package Update Manager — one binary, 12 adapters, --json everywhere. For humans and AI coding agents."
 default-run = "pum"
+license = "MIT"
+repository = "https://github.com/Supersynergy/pum"
+homepage = "https://github.com/Supersynergy/pum"
+readme = "../../README.md"
+authors = ["Maxim M"]
+keywords = ["package-manager", "cli", "updates", "devtools", "audit"]
+categories = ["command-line-utilities", "development-tools"]
+rust-version = "1.96"
 
 [[bin]]
 name = "pum"

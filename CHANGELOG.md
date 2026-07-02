@@ -5,6 +5,10 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-07-02
+
+First public release. Single static Rust binary, 12 adapters, zero runtime deps.
+
 ### Added — project-local scanning + security audit (2026-06-06)
 - **`pum project [path]`** — scans a repo's manifest for outdated **project** dependencies. The 12 global adapters only ever saw `-g` installs, so deps declared in a `package.json`/`Cargo.toml` were a blind spot (e.g. an app pinned to `zod@3` / `date-fns@3` showed nothing). Detects the ecosystem by lockfile and runs the native checker: bun (`bun outdated` table), pnpm/npm (`--json`), cargo (`cargo outdated --format json`). Verified live: found 10 outdated deps in a real Next.js project that `pum check` reported as clean.
 - **`pum audit [path]`** — ghmax-style CVE/GHSA intel: queries the free **OSV.dev** batch API for known vulnerabilities affecting the exact installed versions (`bun pm ls` → OSV `querybatch` via `curl`, keeping pum a zero-HTTP-dep static binary). Verified live against OSV (clean project → no advisories; parse/index-mapping covered by unit test).
