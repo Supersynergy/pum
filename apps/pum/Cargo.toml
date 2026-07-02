@@ -1,6 +1,6 @@
 [package]
 name = "pum"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 description = "Package Update Manager — one binary, 12 adapters, --json everywhere. For humans and AI coding agents."
 default-run = "pum"
@@ -26,3 +26,8 @@ serde_json = "1"
 chrono = { version = "0.4", features = ["serde"] }
 rayon = "1"
 which = "6"
+
+# The profile that 'dist' will build with
+[profile.dist]
+inherits = "release"
+lto = "thin"

@@ -5,6 +5,22 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-07-02
+
+### Fixed
+- **`report --outdated` no longer shows ghost entries for already-upgraded packages.**
+  The `(manager,name,installed)` primary key means an upgrade creates a *new* row
+  instead of updating the old one; nothing ever pruned the stale old-version row, so
+  packages already brought up to date kept showing as outdated forever. Every adapter
+  except the two that legitimately keep multiple installed versions (mise, rustup) now
+  prunes stale rows on `scan`.
+
+### Added
+- Prebuilt binaries (macOS arm64/x86_64, Linux arm64/x86_64, Windows x86_64) attached to
+  every GitHub release via `cargo-dist`, plus a one-line shell installer — no Rust
+  toolchain required to install `pum` anymore.
+- Demo GIF, safety one-liner, and a pum-vs-topgrade/mise comparison table in the README.
+
 ## [0.1.0] - 2026-07-02
 
 First public release. Single static Rust binary, 12 adapters, zero runtime deps.

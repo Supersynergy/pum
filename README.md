@@ -64,11 +64,19 @@ script or an AI agent can consume directly.
 
 ## Quick Start
 
+No Rust toolchain needed — prebuilt binary via shell installer:
+
+```bash
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/Supersynergy/pum/releases/latest/download/pum-installer.sh | sh
+pum doctor                      # which managers are live on this machine
+```
+
+Or from source:
+
 ```bash
 git clone https://github.com/Supersynergy/pum
 cd pum
 cargo install --path apps/pum   # → ~/.cargo/bin/pum
-pum doctor                      # which managers are live on this machine
 ```
 
 Expected result: a table of the managers found on your `PATH`, each marked `live`.
