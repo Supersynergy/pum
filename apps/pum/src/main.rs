@@ -61,10 +61,7 @@ fn json_path() -> PathBuf {
 }
 
 // ── db ────────────────────────────────────────────────────────────────────--
-fn db_connect() -> Result<Connection> {
-    let dir = data_dir();
-    std::fs::create_dir_all(&dir)?;
-    let conn = Connection::open(db_path())?;
+fn init_schema(conn: &Connection) -> Result<()> {
     conn.execute_batch(
         "PRAGMA journal_mode=WAL;
          CREATE TABLE IF NOT EXISTS tools (
@@ -78,6 +75,14 @@ fn db_connect() -> Result<Connection> {
             PRIMARY KEY (manager, name, installed)
          );",
     )?;
+    Ok(())
+}
+
+fn db_connect() -> Result<Connection> {
+    let dir = data_dir();
+    std::fs::create_dir_all(&dir)?;
+    let conn = Connection::open(db_path())?;
+    init_schema(&conn)?;
     Ok(conn)
 }
 
@@ -111,6 +116,49 @@ fn upsert(conn: &Connection, pkgs: &[Package]) -> Result<()> {
     }
     tx.commit()?;
     Ok(())
+}
+
+/// Delete stale (manager,name,old_installed) rows once a fresh scan shows the
+/// package now installed at a different version — for every adapter except
+/// the multi-version ones (mise, rustup), an install *replaces* the prior
+/// version, so the old row is a ghost that would otherwise linger forever and
+/// keep showing up as "outdated" in `report` even after a real upgrade.
+fn prune_stale(conn: &Connection, pkgs: &[Package]) -> Result<usize> {
+    use std::collections::{HashMap, HashSet};
+    let multi_version: HashSet<String> = adapters::all_adapters()
+        .into_iter()
+        .filter(|a| a.multi_version())
+        .map(|a| a.name().to_string())
+        .collect();
+
+    let mut current: HashMap<(String, String), HashSet<String>> = HashMap::new();
+    for p in pkgs {
+        if multi_version.contains(&p.manager) {
+            continue;
+        }
+        current
+            .entry((p.manager.clone(), p.name.clone()))
+            .or_default()
+            .insert(p.installed.clone());
+    }
+
+    let mut pruned = 0;
+    for ((manager, name), installed_versions) in &current {
+        let placeholders = installed_versions
+            .iter()
+            .map(|_| "?")
+            .collect::<Vec<_>>()
+            .join(",");
+        let sql = format!(
+            "DELETE FROM tools WHERE manager = ? AND name = ? AND installed NOT IN ({placeholders})"
+        );
+        let mut params: Vec<&dyn rusqlite::ToSql> = vec![manager, name];
+        for v in installed_versions {
+            params.push(v);
+        }
+        pruned += conn.execute(&sql, params.as_slice())?;
+    }
+    Ok(pruned)
 }
 
 fn load_all(conn: &Connection) -> Result<Vec<Package>> {
@@ -189,6 +237,7 @@ fn cmd_scan() -> Result<()> {
     let (pkgs, errs) = collect(|a| a.list_installed());
     let conn = db_connect()?;
     upsert(&conn, &pkgs)?;
+    prune_stale(&conn, &pkgs)?;
     write_json(&pkgs)?;
 
     let mut by_mgr: std::collections::BTreeMap<String, usize> = Default::default();
@@ -671,6 +720,54 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use crate::adapters;
+    use crate::types::Package;
+
+    fn pkg(manager: &str, name: &str, installed: &str, status: Option<&str>) -> Package {
+        Package {
+            manager: manager.to_string(),
+            name: name.to_string(),
+            installed: installed.to_string(),
+            latest: None,
+            status: status.map(|s| s.to_string()),
+            source: String::new(),
+            checked_at: String::new(),
+        }
+    }
+
+    #[test]
+    fn prune_stale_removes_ghost_row_after_upgrade() {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        super::init_schema(&conn).unwrap();
+
+        // v1 installed + a `check` marks it outdated (mirrors the real scan→check flow)
+        super::upsert(&conn, &[pkg("brew", "ab-av1", "0.11.2", Some("outdated"))]).unwrap();
+        // package gets upgraded; a fresh `scan` now reports v2 installed
+        let fresh = [pkg("brew", "ab-av1", "0.11.4", None)];
+        super::upsert(&conn, &fresh).unwrap();
+        super::prune_stale(&conn, &fresh).unwrap();
+
+        let rows = super::load_all(&conn).unwrap();
+        assert_eq!(rows.len(), 1, "the stale 0.11.2 ghost row must be gone");
+        assert_eq!(rows[0].installed, "0.11.4");
+    }
+
+    #[test]
+    fn prune_stale_keeps_multi_version_adapter_rows() {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        super::init_schema(&conn).unwrap();
+
+        super::upsert(&conn, &[pkg("mise", "python", "3.12.0", None)]).unwrap();
+        let fresh = [pkg("mise", "python", "3.14.0", None)];
+        super::upsert(&conn, &fresh).unwrap();
+        super::prune_stale(&conn, &fresh).unwrap();
+
+        let rows = super::load_all(&conn).unwrap();
+        assert_eq!(
+            rows.len(),
+            2,
+            "mise legitimately keeps multiple installed versions"
+        );
+    }
 
     #[test]
     fn brew_outdated_parses() {

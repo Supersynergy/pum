@@ -11,6 +11,9 @@ impl Adapter for RustupAdapter {
     fn binary(&self) -> &str {
         "rustup"
     }
+    fn multi_version(&self) -> bool {
+        true
+    }
 
     fn list_installed(&self) -> Vec<Package> {
         let (_, out, _) = run_default(&["rustup", "toolchain", "list"]);

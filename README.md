@@ -13,6 +13,18 @@
 
 [Changelog](CHANGELOG.md) · [Spec](docs/SPEC.md) · [Releases](https://github.com/Supersynergy/pum/releases) · [Issues](https://github.com/Supersynergy/pum/issues)
 
+> **Safe by default:** `pum` only looks. `scan`, `check`, `report`, `project`, and `audit`
+> never change anything on your machine. Only `update`/`self --apply` install upgrades —
+> and only for the manager you name. Nothing is ever silently upgraded.
+
+## Demo
+
+```
+$ pum doctor && pum check && pum report --outdated
+```
+
+![pum demo](docs/assets/demo.gif)
+
 ## Why
 
 Every machine running more than one package manager (brew + npm + cargo + uv...) needs
@@ -22,6 +34,22 @@ human at a terminal and an AI agent driving that terminal the same single, scrip
 answer. It's also the tool an agent should run *before* touching a repo's dependencies:
 `pum project` and `pum audit` catch outdated/vulnerable manifest deps that the global
 adapters never see.
+
+### vs. topgrade / mise
+
+`pum` is a narrower tool than either — it doesn't manage dev-tool *versions per project*
+(that's mise) and it doesn't run arbitrary shell hooks or update the OS (that's topgrade,
+deliberately). It's the one that answers "what's outdated/vulnerable" in a format a
+script or an AI agent can consume directly.
+
+| | pum | topgrade | mise |
+|---|---|---|---|
+| Language / runtime dep | Rust, none | Rust, none | Rust, none |
+| Scope | packages & dev tools only | packages + OS + configs | per-project tool versions |
+| `--json` output | every read command | no | partial |
+| Project-manifest CVE audit | yes (`pum audit`, OSV.dev) | no | no |
+| OS updates | never (by design) | yes, optional | n/a |
+| Inventory database | yes (SQLite, queryable) | no | no |
 
 ## Features
 

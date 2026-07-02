@@ -42,6 +42,14 @@ pub trait Adapter: Send + Sync {
     fn report_only(&self) -> bool {
         false
     }
+    /// True only for adapters where multiple installed versions of the same
+    /// package name legitimately coexist (mise per-project tool versions,
+    /// rustup toolchains). For every other adapter, an install replaces the
+    /// prior version — a stale (manager,name,old_installed) row must not
+    /// survive a re-scan, or `report --outdated` shows ghosts.
+    fn multi_version(&self) -> bool {
+        false
+    }
 }
 
 /// Return all 12 adapters (no softwareupdate / no OS).

@@ -11,6 +11,9 @@ impl Adapter for MiseAdapter {
     fn binary(&self) -> &str {
         "mise"
     }
+    fn multi_version(&self) -> bool {
+        true
+    }
 
     fn list_installed(&self) -> Vec<Package> {
         let (_, out, _) = run_default(&["mise", "ls", "--current"]);
