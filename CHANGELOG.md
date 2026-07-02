@@ -5,6 +5,21 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-07-02
+
+### Fixed
+- **`pnpm outdated` no longer misparses its own error output as a package.** When no
+  global pnpm manifest exists, `pnpm outdated -g` prints an `ERR_PNPM_*` error line
+  instead of a table; that line still had 3+ whitespace-separated tokens and was being
+  read as a package named `ERR_PNPM_NO_IMPORTER_MANIFEST_FOUND`.
+- **`pum report --outdated` showed `unknown` as the installed version for every
+  outdated Homebrew cask.** `installed_versions` in `brew outdated --json` is an array
+  for casks too (same shape as formulae) — it was being read as a plain string, which
+  always failed and fell back to `unknown`.
+
+Both found while re-recording the README demo against this machine's real, messy
+package inventory — a good reminder that a demo against real data is itself a QA step.
+
 ## [0.1.1] - 2026-07-02
 
 ### Fixed

@@ -735,6 +735,20 @@ mod tests {
     }
 
     #[test]
+    fn pnpm_outdated_ignores_error_line() {
+        let out = " ERR_PNPM_NO_IMPORTER_MANIFEST_FOUND  No package.json (or package.yaml, or package.json5) was found in \"/x\".\n";
+        assert!(adapters::pnpm::parse_pnpm_outdated(out).is_empty());
+    }
+
+    #[test]
+    fn pnpm_outdated_parses_real_table() {
+        let out = "Package  Current  Latest\nfoo      1.0.0    1.2.0\n";
+        let p = adapters::pnpm::parse_pnpm_outdated(out);
+        assert_eq!(p.len(), 1);
+        assert_eq!(p[0].name, "foo");
+    }
+
+    #[test]
     fn prune_stale_removes_ghost_row_after_upgrade() {
         let conn = rusqlite::Connection::open_in_memory().unwrap();
         super::init_schema(&conn).unwrap();
@@ -778,6 +792,17 @@ mod tests {
         assert_eq!(p[0].installed, "1.0");
         assert_eq!(p[0].latest.as_deref(), Some("1.1"));
         assert_eq!(p[0].status.as_deref(), Some("outdated"));
+    }
+
+    #[test]
+    fn brew_outdated_cask_installed_versions_is_an_array() {
+        // installed_versions is an array for casks too — was being read as a
+        // string and always falling back to "unknown".
+        let j = r#"{"formulae":[],"casks":[{"name":"foo-cask","installed_versions":["3.2.3"],"current_version":"3.3.0"}]}"#;
+        let p = adapters::brew::parse_brew_outdated(j);
+        assert_eq!(p.len(), 1);
+        assert_eq!(p[0].installed, "3.2.3");
+        assert_eq!(p[0].latest.as_deref(), Some("3.3.0"));
     }
 
     #[test]

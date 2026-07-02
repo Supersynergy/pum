@@ -95,6 +95,8 @@ pub fn parse_brew_outdated(json_str: &str) -> Vec<Package> {
                 .unwrap_or("unknown");
             let installed = item
                 .get("installed_versions")
+                .and_then(|v| v.as_array())
+                .and_then(|arr| arr.last())
                 .and_then(|v| v.as_str())
                 .unwrap_or("unknown");
             let latest = item

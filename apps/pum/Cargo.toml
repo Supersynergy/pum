@@ -1,6 +1,6 @@
 [package]
 name = "pum"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2024"
 description = "Package Update Manager — one binary, 12 adapters, --json everywhere. For humans and AI coding agents."
 default-run = "pum"
