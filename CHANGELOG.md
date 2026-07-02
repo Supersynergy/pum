@@ -5,6 +5,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed
+- Refreshed README positioning around safe local package health checks, visible signals,
+  and expected demo output.
+- Replaced the social preview with a release-grade package-flow visual and recorded
+  image provenance in `docs/assets/README.md`.
+- Aligned the Cargo package description with the public safe-health-check positioning.
+
 ## [0.1.2] - 2026-07-02
 
 ### Fixed

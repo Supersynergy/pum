@@ -4,8 +4,7 @@
 
 # pum — Package Update Manager
 
-> Unified update manager for humans and AI coding agents — one static Rust binary,
-> 12 package-manager adapters, `--json` on every command so agents parse it without scraping text.
+> Safe local package health check for dev machines and AI coding agents — one static Rust binary, 12 adapters, structured JSON, and no silent upgrades.
 
 [![Release](https://img.shields.io/github/v/release/Supersynergy/pum)](https://github.com/Supersynergy/pum/releases)
 [![License](https://img.shields.io/github/license/Supersynergy/pum)](LICENSE)
@@ -17,6 +16,15 @@
 > never change anything on your machine. Only `update`/`self --apply` install upgrades —
 > and only for the manager you name. Nothing is ever silently upgraded.
 
+## What You See
+
+| Signal | Why it matters |
+|---|---|
+| Live managers | You know which package managers are actually on this machine. |
+| Outdated packages | Humans get tables; agents get JSON without scraping terminal text. |
+| Project dependency audit | Repo manifests get checked, not just globally installed tools. |
+| Dry-run updates | You can preview changes before anything mutates. |
+
 ## Demo
 
 ```
@@ -24,6 +32,8 @@ $ pum doctor && pum check && pum report --outdated
 ```
 
 ![pum demo](docs/assets/demo.gif)
+
+Expected result: manager status, outdated packages, and optional machine-readable JSON for agents or CI.
 
 ## Why
 

@@ -1,15 +1,20 @@
 # Assets
 
-- `social-preview.png` — 1280x640 deterministic SVG card, generated 2026-07-02 via
-  `repo-release-excellence` skill's `scripts/gen-hero.sh` (no AI image gen, no external
-  service — pure SVG→PNG render). Regenerate with:
+- `social-preview.png` — 1280x640 README/social card generated 2026-07-02 from a
+  built-in image-generation background plus deterministic text overlay. Prompt:
 
-  ```bash
-  bash scripts/gen-hero.sh --name "pum" \
-    --tagline "Package Update Manager — for humans and AI agents" \
-    --motif '$ pum doctor && pum update --all' \
-    --accent "#F59E0B" --accent2 "#38BDF8" \
-    --out docs/assets/social-preview.png
+  ```text
+  Premium dark developer-tool illustration for pum: generic package-manager tiles flow
+  into one local secure command center, then out to JSON/report/audit panels. No brand
+  logos, no programming-language logos, no mascots, no watermark, no legible generated
+  text. Palette: graphite, amber, mint, cobalt.
   ```
 
-  Upload manually to GitHub repo Settings → Social preview (no API for this).
+  The final overlay card is the release asset. Regenerate by creating a no-text,
+  no-brand background from the prompt above, resizing it to 1280x640, and applying crisp
+  local text overlay with the README headline and trust chips.
+
+- `demo.gif` — terminal demo recorded from real local output. Keep it near the top of
+  the README because it proves the tool before users read details.
+
+Manual gate: upload `social-preview.png` in GitHub repo Settings -> Social preview.
