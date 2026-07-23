@@ -121,6 +121,12 @@ fn tools() -> Vec<Value> {
             "inputSchema": { "type": "object", "properties": {}, "additionalProperties": false },
             "annotations": { "readOnlyHint": true, "destructiveHint": false, "openWorldHint": false }
         }),
+        json!({
+            "name": "pum_release_notes",
+            "description": "Return the release notes embedded in this PUM binary plus stable GitHub and raw CHANGELOG URLs. Use on demand when an agent needs to know what changed.",
+            "inputSchema": { "type": "object", "properties": {}, "additionalProperties": false },
+            "annotations": { "readOnlyHint": true, "destructiveHint": false, "openWorldHint": false }
+        }),
     ]
 }
 
@@ -175,6 +181,18 @@ fn call_tool(params: Value) -> std::result::Result<Value, (i64, String)> {
                 "package": "PUM — Package Update Manager",
                 "adapters": adapters,
                 "os_updates_supported": false,
+            })
+        }
+        "pum_release_notes" => {
+            reject_arguments(&arguments, &[])?;
+            json!({
+                "version": env!("CARGO_PKG_VERSION"),
+                "release_notes": include_str!("../../../CHANGELOG.md"),
+                "links": {
+                    "releases": "https://github.com/Supersynergy/pum/releases",
+                    "changelog": "https://github.com/Supersynergy/pum/blob/main/CHANGELOG.md",
+                    "raw_changelog": "https://raw.githubusercontent.com/Supersynergy/pum/main/CHANGELOG.md"
+                }
             })
         }
         _ => return Err((-32602, format!("unknown PUM tool: {name}"))),
@@ -277,7 +295,13 @@ mod tests {
             .collect();
         assert_eq!(
             names,
-            ["pum_status", "pum_refresh", "pum_update_plan", "pum_doctor"]
+            [
+                "pum_status",
+                "pum_refresh",
+                "pum_update_plan",
+                "pum_doctor",
+                "pum_release_notes"
+            ]
         );
     }
 
