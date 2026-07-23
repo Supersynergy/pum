@@ -65,6 +65,7 @@ left untouched.
 | `pum update [--manager M\|--all] [--dry-run] [pkg...]` | Upgrade packages | no | yes |
 | `pum schedule --install\|--remove` | Install/remove daily macOS `refresh` | no | launchd only |
 | `pum self [--apply]` | Check/run manager self-updates | no | with --apply |
+| `pum changelog [--json]` | Embedded release notes plus stable fetch links | no | no |
 | `pum mcp` | MCP stdio server: status, refresh, doctor, update plan | local ledger only | no |
 
 ## MCP interface

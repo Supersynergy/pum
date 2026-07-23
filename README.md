@@ -203,6 +203,7 @@ pum update --all                   explicit package updates
 pum self [--apply]                 show/apply supported manager self-updates
 pum project [path] [--json]        project manifest dependencies
 pum audit [path] [--json]          OSV vulnerability lookup
+pum changelog [--json]             embedded release notes + stable fetch links
 pum mcp                            MCP stdio server: status, refresh, doctor, dry update plan
 ```
 
