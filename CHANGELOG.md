@@ -6,6 +6,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- **`pum changelog [--json]`:** CLI-first embedded release notes with stable
+  GitHub release, changelog, and raw-changelog links for agents and scripts.
 - **`pum mcp`:** dependency-free MCP stdio server for local package freshness.
   It exposes read-only `pum_status`, `pum_update_plan`, and `pum_doctor`, plus
   `pum_refresh` which writes only PUM's local DuckDB snapshot. No MCP tool can

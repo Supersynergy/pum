@@ -1163,6 +1163,29 @@ fn cmd_audit(path: Option<&str>, json: bool) -> Result<()> {
     Ok(())
 }
 
+fn cmd_changelog(json: bool) -> Result<()> {
+    let payload = serde_json::json!({
+        "version": env!("CARGO_PKG_VERSION"),
+        "release_notes": include_str!("../../../CHANGELOG.md"),
+        "links": {
+            "releases": "https://github.com/Supersynergy/pum/releases",
+            "changelog": "https://github.com/Supersynergy/pum/blob/main/CHANGELOG.md",
+            "raw_changelog": "https://raw.githubusercontent.com/Supersynergy/pum/main/CHANGELOG.md"
+        }
+    });
+    if json {
+        println!("{}", serde_json::to_string_pretty(&payload)?);
+    } else {
+        println!(
+            "pum changelog — v{}\n\n{}",
+            env!("CARGO_PKG_VERSION"),
+            include_str!("../../../CHANGELOG.md")
+        );
+        println!("\nLive: https://github.com/Supersynergy/pum/releases");
+    }
+    Ok(())
+}
+
 // ── cli ───────────────────────────────────────────────────────────────────--
 #[derive(Parser)]
 #[command(
@@ -1248,6 +1271,11 @@ enum Cmd {
     },
     /// Serve safe freshness and update-plan tools over MCP stdio
     Mcp,
+    /// Show embedded release notes and stable changelog URLs
+    Changelog {
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 fn main() {
@@ -1280,6 +1308,7 @@ fn main() {
         Cmd::Project { path, json } => cmd_project(path.as_deref(), json),
         Cmd::Audit { path, json } => cmd_audit(path.as_deref(), json),
         Cmd::Mcp => mcp::serve(),
+        Cmd::Changelog { json } => cmd_changelog(json),
     };
     if let Err(e) = result {
         eprintln!("{} {e}", c("error:", RED));
