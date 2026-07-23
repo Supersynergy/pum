@@ -50,6 +50,18 @@ pub trait Adapter: Send + Sync {
     fn multi_version(&self) -> bool {
         false
     }
+    /// True only when a successful inventory is an authoritative complete view
+    /// of this manager's scope. It permits removal of rows left by a previous
+    /// broken parser, but never clears a manager that returned no packages.
+    fn complete_inventory(&self) -> bool {
+        false
+    }
+    /// Return a concise source-health fault that makes freshness unknown.
+    /// The default is healthy; adapters opt in only for errors they can
+    /// distinguish from a normal "updates available" exit status.
+    fn source_health_error(&self) -> Option<String> {
+        None
+    }
 }
 
 /// Return all 12 adapters (no softwareupdate / no OS).

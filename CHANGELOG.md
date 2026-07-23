@@ -5,6 +5,22 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-07-23
+
+### Fixed
+- **pnpm global inventory is now JSON-only.** pnpm 10's tree-formatted output
+  could be stored as fake package names such as `│` and `└──`; PUM now records
+  the real package/version (`wrangler 4.114.0`) and removes those legacy rows.
+- **A missing pnpm global manifest is an explicit freshness error.** Daily
+  refreshes now say that pnpm freshness is unavailable instead of silently
+  treating the broken scope as clean.
+- **Bun global updates use `bun update -g`, never `bun upgrade`.** The latter
+  upgrades the Bun runtime; package updates remain package-only.
+
+### Changed
+- **Bun now has candidate-version coverage** through its native, read-only
+  `bun outdated -g` query. It is no longer listed as `update_only`.
+
 ### Added
 - **`pum changelog [--json]`:** CLI-first embedded release notes with stable
   GitHub release, changelog, and raw-changelog links for agents and scripts.
