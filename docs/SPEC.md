@@ -65,6 +65,16 @@ left untouched.
 | `pum update [--manager M\|--all] [--dry-run] [pkg...]` | Upgrade packages | no | yes |
 | `pum schedule --install\|--remove` | Install/remove daily macOS `refresh` | no | launchd only |
 | `pum self [--apply]` | Check/run manager self-updates | no | with --apply |
+| `pum mcp` | MCP stdio server: status, refresh, doctor, update plan | local ledger only | no |
+
+## MCP interface
+
+`pum mcp` implements the MCP stdio transport: newline-delimited JSON-RPC on
+stdin/stdout, with diagnostics only on stderr. It exposes `pum_status`,
+`pum_refresh`, `pum_update_plan`, and `pum_doctor`. `pum_refresh` can contact
+native package-manager sources and append a local DuckDB snapshot; it does not
+install, remove, upgrade, or update the operating system. The server offers no
+package-mutation tool, so a human must still invoke the reviewed CLI update.
 
 ## Adapters Implemented
 

@@ -5,6 +5,12 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+- **`pum mcp`:** dependency-free MCP stdio server for local package freshness.
+  It exposes read-only `pum_status`, `pum_update_plan`, and `pum_doctor`, plus
+  `pum_refresh` which writes only PUM's local DuckDB snapshot. No MCP tool can
+  mutate packages or the OS.
+
 ### Fixed
 - **Brew cask upgrades no longer leave obsolete candidates in the DuckDB
   ledger.** Formula and cask inventory are now read independently; casks come
@@ -17,7 +23,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   answer, review-before-mutation path, human/agent/repository recipes, explicit
   source coverage, and durable local-data boundaries.
 - Added a human-centred social/README hero and preserved its exact image prompt
-  and regeneration gate in `docs/assets/README.md`.
+  and regeneration gate in `docs/assets/README.md`; the visible title now
+  expands PUM to **Package Update Manager**.
 - Pinned every GitHub Action to a reviewed commit SHA; cargo-dist and Rust
   bootstraps no longer pipe a remote script into a shell. Release credentials
   are limited to the publish job.
