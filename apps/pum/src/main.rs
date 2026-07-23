@@ -3,6 +3,7 @@
 //! updates, update per-tool or all. Packages & tools only — never the OS.
 mod adapters;
 mod audit;
+mod mcp;
 mod project;
 mod run;
 mod types;
@@ -1245,6 +1246,8 @@ enum Cmd {
         #[arg(long)]
         json: bool,
     },
+    /// Serve safe freshness and update-plan tools over MCP stdio
+    Mcp,
 }
 
 fn main() {
@@ -1276,6 +1279,7 @@ fn main() {
         } => cmd_schedule(install, remove, hour, minute),
         Cmd::Project { path, json } => cmd_project(path.as_deref(), json),
         Cmd::Audit { path, json } => cmd_audit(path.as_deref(), json),
+        Cmd::Mcp => mcp::serve(),
     };
     if let Err(e) = result {
         eprintln!("{} {e}", c("error:", RED));

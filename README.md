@@ -1,13 +1,13 @@
 <p align="center">
-  <img src="docs/assets/pum-human-first-social.png" alt="A calm local package command centre: many sources, one clear answer" width="100%">
+  <img src="docs/assets/pum-human-first-social.png" alt="PUM — Package Update Manager: a calm local package command centre with many sources and one clear answer" width="100%">
 </p>
 
-<h1 align="center">pum</h1>
+<h1 align="center">PUM — Package Update Manager</h1>
 
 <p align="center"><strong>See what is stale. Choose what changes. Keep your dev machine yours.</strong></p>
 
 <p align="center">
-  Safe package health for humans and AI coding agents: one local Rust CLI, 12 package-manager adapters, durable version history, and zero silent upgrades.
+  A local-first package update manager, software update checker, CLI, and MCP server for macOS and Linux developer machines: 12 package-manager adapters, durable DuckDB version history, and zero silent upgrades.
 </p>
 
 <p align="center">
@@ -17,6 +17,13 @@
 </p>
 
 > **The promise:** PUM tells you what is installed, what has a verified newer candidate, when that answer was checked, and which sources are still unknown. It never updates your OS and never changes packages until you explicitly run `update` or `self --apply`.
+
+PUM means **Package Update Manager**. It unifies Homebrew, npm, pnpm, Cargo,
+Rustup, RubyGems, mise, uv, pipx, Bun, Go, and GitHub CLI extension freshness
+behind one local Rust command-line tool and one optional Model Context Protocol
+(MCP) interface. Use it as a package-version tracker, a developer-workstation
+updater planner, a daily software-update check, or a safe package-freshness
+source for an AI agent.
 
 ## Start here — 60 seconds to a truthful answer
 
@@ -108,6 +115,33 @@ freshdocs context "<task>" --project <project-root> --sync-stale
 
 PUM answers **installed tool freshness**. Freshdocs answers the **current integration/API contract**. The PUM agent skill encodes this sequence and refuses to call an unsupported source “current.”
 
+### For an MCP client
+
+PUM includes a zero-daemon, stdio **Model Context Protocol (MCP)** server. It
+uses the same local DuckDB ledger as the CLI; no package inventory is sent to a
+PUM cloud service. Add this to a client that supports MCP stdio servers:
+
+```json
+{
+  "mcpServers": {
+    "pum": {
+      "command": "pum",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+| MCP tool | Effect |
+|---|---|
+| `pum_status` | Read local freshness, newer candidates, and coverage; no source call |
+| `pum_refresh` | Read-only manager/source check and local DuckDB snapshot; never upgrades packages |
+| `pum_update_plan` | Exact proposed manager commands; dry plan only |
+| `pum_doctor` | Active managers and resolved binaries on `PATH`; read-only |
+
+`pum mcp` never exposes a package-mutation tool. An agent can inspect and plan,
+but a human still runs an explicit reviewed `pum update …` command in a terminal.
+
 ### For a repo
 
 ```bash
@@ -159,6 +193,7 @@ pum update --all                   explicit package updates
 pum self [--apply]                 show/apply supported manager self-updates
 pum project [path] [--json]        project manifest dependencies
 pum audit [path] [--json]          OSV vulnerability lookup
+pum mcp                            MCP stdio server: status, refresh, doctor, dry update plan
 ```
 
 ## Architecture
