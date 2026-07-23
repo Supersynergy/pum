@@ -44,7 +44,8 @@ impl Adapter for BunAdapter {
                 "bun".into(),
                 "update".into(),
                 "-g".into(),
-                format!("{p}@latest"),
+                "--latest".into(),
+                p.into(),
             ],
             None => vec![
                 "bun".into(),

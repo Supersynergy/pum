@@ -805,6 +805,41 @@ fn cmd_report(json: bool, outdated: bool, manager: Option<&str>) -> Result<()> {
     Ok(())
 }
 
+#[derive(Debug, PartialEq, Eq)]
+enum UpdateManagerResolution {
+    NotFound,
+    Found(String),
+    Ambiguous(Vec<String>),
+}
+
+/// A package name can legitimately live in more than one global manager
+/// (for example npm and Bun). Never choose a scope by timestamp: an explicit
+/// manager wins; otherwise force the operator to make that choice.
+fn resolve_update_manager(
+    conn: &Connection,
+    package: &str,
+    requested_manager: Option<&str>,
+) -> Result<UpdateManagerResolution> {
+    let managers = if let Some(manager) = requested_manager {
+        let mut stmt = conn.prepare(
+            "SELECT DISTINCT manager FROM tools WHERE name=?1 AND manager=?2 ORDER BY manager",
+        )?;
+        stmt.query_map(params![package, manager], |row| row.get(0))?
+            .collect::<std::result::Result<Vec<String>, _>>()?
+    } else {
+        let mut stmt =
+            conn.prepare("SELECT DISTINCT manager FROM tools WHERE name=?1 ORDER BY manager")?;
+        stmt.query_map(params![package], |row| row.get(0))?
+            .collect::<std::result::Result<Vec<String>, _>>()?
+    };
+
+    Ok(match managers.as_slice() {
+        [] => UpdateManagerResolution::NotFound,
+        [manager] => UpdateManagerResolution::Found(manager.clone()),
+        _ => UpdateManagerResolution::Ambiguous(managers),
+    })
+}
+
 fn cmd_update(
     packages: &[String],
     manager: Option<&str>,
@@ -814,21 +849,30 @@ fn cmd_update(
 ) -> Result<()> {
     println!("\n{}\n", c("pum update", BOLD));
 
-    // specific packages → find owning manager from inventory
+    // Specific packages can exist in multiple global scopes. Do not guess.
     if !packages.is_empty() {
         let conn = db_connect()?;
         let mut applied = false;
         for pkg in packages {
-            let mgr: Option<String> = conn
-                .query_row(
-                    "SELECT manager FROM tools WHERE name=?1 ORDER BY checked_at DESC LIMIT 1",
-                    params![pkg],
-                    |r| r.get(0),
-                )
-                .ok();
-            let Some(mgr) = mgr else {
-                println!("  {pkg}: not found in inventory (run pum scan)");
-                continue;
+            let mgr = match resolve_update_manager(&conn, pkg, manager)? {
+                UpdateManagerResolution::Found(manager) => manager,
+                UpdateManagerResolution::NotFound => {
+                    if let Some(requested) = manager {
+                        println!(
+                            "  {pkg}: not found in '{requested}' inventory (run pum refresh first)"
+                        );
+                    } else {
+                        println!("  {pkg}: not found in inventory (run pum refresh first)");
+                    }
+                    continue;
+                }
+                UpdateManagerResolution::Ambiguous(managers) => {
+                    println!(
+                        "  {pkg}: found in multiple managers [{}]; choose one: pum update --manager <manager> {pkg}",
+                        managers.join(", ")
+                    );
+                    continue;
+                }
             };
             let Some(adapter) = get_adapter(&mgr) else {
                 println!("  {pkg}: adapter '{mgr}' not in registry");
@@ -1653,7 +1697,34 @@ mod tests {
         );
         assert_eq!(
             adapter.upgrade_cmd(Some("wrangler")),
-            vec!["bun", "update", "-g", "wrangler@latest"]
+            vec!["bun", "update", "-g", "--latest", "wrangler"]
+        );
+    }
+
+    #[test]
+    fn package_update_requires_manager_for_duplicate_inventory_names() {
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        super::init_schema(&conn).unwrap();
+        super::upsert(
+            &conn,
+            &[
+                pkg("bun", "repovista", "0.5.1", None),
+                pkg("npm", "repovista", "0.5.1", None),
+            ],
+        )
+        .unwrap();
+
+        assert_eq!(
+            super::resolve_update_manager(&conn, "repovista", None).unwrap(),
+            super::UpdateManagerResolution::Ambiguous(vec!["bun".into(), "npm".into()])
+        );
+        assert_eq!(
+            super::resolve_update_manager(&conn, "repovista", Some("bun")).unwrap(),
+            super::UpdateManagerResolution::Found("bun".into())
+        );
+        assert_eq!(
+            super::resolve_update_manager(&conn, "repovista", Some("pnpm")).unwrap(),
+            super::UpdateManagerResolution::NotFound
         );
     }
 

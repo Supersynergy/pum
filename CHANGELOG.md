@@ -5,6 +5,16 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [0.2.3] - 2026-07-24
+
+### Fixed
+- **Explicit package updates are now manager-safe.** If a name exists in more
+  than one global scope (for example npm and Bun), PUM stops and requires
+  `--manager <name>` instead of selecting a scope by a ledger timestamp.
+- **Targeted Bun global updates now include `--latest`.** This makes an
+  explicit PUM update honor the registry's latest version even across a major
+  range change.
+
 ## [0.2.2] - 2026-07-23
 
 ### Changed
