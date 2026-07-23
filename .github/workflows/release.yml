@@ -98,12 +98,15 @@ jobs:
       # functionality based on whether this is a pull_request, and whether it's from a fork.
       # (PRs run on the *source* but secrets are usually on the *target* -- that's *good*
       # but also really annoying to build CI around when it needs secrets to work right.)
+      # This workflow deliberately hardens cargo-dist's generated template (SHA-pinned
+      # actions, least privilege, and no remote shell installers). Keep --allow-dirty on
+      # each dist invocation so cargo-dist accepts those reviewed divergences.
       - id: plan
         run: |
           if [[ -n "$DIST_TAG" ]]; then
-            dist host --steps=create --tag="$DIST_TAG" --output-format=json > plan-dist-manifest.json
+            dist host --allow-dirty --steps=create --tag="$DIST_TAG" --output-format=json > plan-dist-manifest.json
           else
-            dist plan --output-format=json > plan-dist-manifest.json
+            dist plan --allow-dirty --output-format=json > plan-dist-manifest.json
           fi
           echo "dist ran successfully"
           cat plan-dist-manifest.json
@@ -173,7 +176,7 @@ jobs:
       - name: Build artifacts
         run: |
           # Actually do builds and make zips and whatnot
-          dist build ${{ needs.plan.outputs.tag-flag }} --print=linkage --output-format=json ${{ matrix.dist_args }} > dist-manifest.json
+          dist build --allow-dirty ${{ needs.plan.outputs.tag-flag }} --print=linkage --output-format=json ${{ matrix.dist_args }} > dist-manifest.json
           echo "dist ran successfully"
       - id: cargo-dist
         name: Post-build
@@ -228,7 +231,7 @@ jobs:
       - id: cargo-dist
         shell: bash
         run: |
-          dist build ${{ needs.plan.outputs.tag-flag }} --output-format=json "--artifacts=global" > dist-manifest.json
+          dist build --allow-dirty ${{ needs.plan.outputs.tag-flag }} --output-format=json "--artifacts=global" > dist-manifest.json
           echo "dist ran successfully"
 
           # Parse out what we just built and upload it to scratch storage
@@ -282,7 +285,7 @@ jobs:
       - id: host
         shell: bash
         run: |
-          dist host ${{ needs.plan.outputs.tag-flag }} --steps=upload --steps=release --output-format=json > dist-manifest.json
+          dist host --allow-dirty ${{ needs.plan.outputs.tag-flag }} --steps=upload --steps=release --output-format=json > dist-manifest.json
           echo "artifacts uploaded and released successfully"
           cat dist-manifest.json
           echo "manifest=$(jq -c "." dist-manifest.json)" >> "$GITHUB_OUTPUT"
