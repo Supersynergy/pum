@@ -1,6 +1,6 @@
 [package]
 name = "pum"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2024"
 description = "PUM (Package Update Manager): local package freshness CLI and MCP server."
 default-run = "pum"

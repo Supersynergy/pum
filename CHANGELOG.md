@@ -5,6 +5,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-07-23
+
+### Changed
+- **Release tags now require a green `ci.yml` run for the exact tagged commit.**
+  This preserves format, Clippy, test, release-build, and cargo-deny gates
+  while avoiding a redundant multi-hour DuckDB rebuild before cargo-dist starts.
+
 ## [0.2.1] - 2026-07-23
 
 ### Fixed

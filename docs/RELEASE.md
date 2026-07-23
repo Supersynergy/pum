@@ -32,10 +32,11 @@ Confirm all of these manually before the tag:
 
 1. Push the reviewed commit to `main`; wait for CI and cargo-deny to pass.
 2. Create signed annotated tag `vX.Y.Z` only from that commit and push it.
-3. The release workflow first runs format, clippy, tests, release build, and
-   cargo-deny; only then does cargo-dist build the five configured targets,
-   archive hashes, shell installer, and GitHub release assets. Preserve that
-   `verify` job if cargo-dist regenerates the workflow.
+3. The release workflow requires a successful `ci.yml` run for the exact tagged
+   commit (format, strict Clippy, tests, release build, and cargo-deny) before
+   cargo-dist builds the five configured targets, archive hashes, shell
+   installer, and GitHub release assets. Preserve that `verify` job if
+   cargo-dist regenerates the workflow.
 4. Download each archive from the immutable release URL, verify its `.sha256`,
    then run `pum --version`, `pum doctor`, and a temporary-DB `pum refresh` on
    its native platform.

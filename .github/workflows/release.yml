@@ -15,6 +15,7 @@
 
 name: Release
 permissions:
+  actions: read
   contents: read
 
 # This task will run whenever you push a git tag that looks like a version
@@ -46,38 +47,27 @@ on:
 
 jobs:
   # Keep this gate when regenerating this cargo-dist workflow. A tag must not
-  # publish artifacts that skipped the normal source/security checks.
+  # publish artifacts that skipped the normal source/security checks. Rebuilding
+  # bundled DuckDB here would repeat CI's three native builds and delay a valid
+  # release for hours, so require CI for this exact commit instead.
   verify:
-    name: verify release source
+    name: verify matching CI
     runs-on: "ubuntu-22.04"
-    defaults:
-      run:
-        working-directory: apps/pum
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      # Match CI's lockfile-keyed cache: cold DuckDB builds otherwise make the
-      # release source gate take hours before cargo-dist can even plan assets.
-      - name: Cache cargo
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            apps/pum/target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('apps/pum/Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-cargo-
-      - name: Format
-        run: cargo fmt --all --check
-      - name: Clippy
-        run: cargo clippy --all-targets --all-features -- -D warnings
-      - name: Test
-        run: cargo test --all-features
-      - name: Build (release)
-        run: cargo build --release
-      - name: Cargo deny
-        uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
-        with:
-          manifest-path: apps/pum/Cargo.toml
+      - name: Require successful CI for this exact commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PUM_REPOSITORY: ${{ github.repository }}
+          PUM_SHA: ${{ github.sha }}
+          PUM_EVENT: ${{ github.event_name }}
+        shell: bash
+        run: |
+          runs=$(gh api "repos/$PUM_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$PUM_SHA&event=$PUM_EVENT&status=completed&per_page=100")
+          if ! jq -e '.workflow_runs[] | select(.conclusion == "success")' <<<"$runs" > /dev/null; then
+            echo "A successful ci.yml run for $PUM_SHA is required before release." >&2
+            exit 1
+          fi
+          echo "Verified successful CI for $PUM_SHA"
 
   # Run 'dist plan' (or host) to determine what tasks we need to do
   plan:
