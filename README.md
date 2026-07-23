@@ -1,180 +1,190 @@
 <p align="center">
-  <img src="docs/assets/social-preview.png" alt="pum — package update manager for humans and AI agents" width="100%">
+  <img src="docs/assets/pum-human-first-social.png" alt="A calm local package command centre: many sources, one clear answer" width="100%">
 </p>
 
-# pum — Package Update Manager
+<h1 align="center">pum</h1>
 
-> Safe local package health check for dev machines and AI coding agents — one static Rust binary, 12 adapters, structured JSON, and no silent upgrades.
+<p align="center"><strong>See what is stale. Choose what changes. Keep your dev machine yours.</strong></p>
 
-[![Release](https://img.shields.io/github/v/release/Supersynergy/pum)](https://github.com/Supersynergy/pum/releases)
-[![License](https://img.shields.io/github/license/Supersynergy/pum)](LICENSE)
-[![CI](https://img.shields.io/github/actions/workflow/status/Supersynergy/pum/ci.yml)](https://github.com/Supersynergy/pum/actions)
+<p align="center">
+  Safe package health for humans and AI coding agents: one local Rust CLI, 12 package-manager adapters, durable version history, and zero silent upgrades.
+</p>
 
-[Changelog](CHANGELOG.md) · [Spec](docs/SPEC.md) · [Releases](https://github.com/Supersynergy/pum/releases) · [Issues](https://github.com/Supersynergy/pum/issues)
+<p align="center">
+  <a href="https://github.com/Supersynergy/pum/releases"><img alt="Release" src="https://img.shields.io/github/v/release/Supersynergy/pum"></a>
+  <a href="https://github.com/Supersynergy/pum/actions"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/Supersynergy/pum/ci.yml?label=checks"></a>
+  <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/github/license/Supersynergy/pum"></a>
+</p>
 
-> **Safe by default:** `pum` only looks. `scan`, `check`, `report`, `project`, and `audit`
-> never change anything on your machine. Only `update`/`self --apply` install upgrades —
-> and only for the manager you name. Nothing is ever silently upgraded.
+> **The promise:** PUM tells you what is installed, what has a verified newer candidate, when that answer was checked, and which sources are still unknown. It never updates your OS and never changes packages until you explicitly run `update` or `self --apply`.
 
-## What You See
-
-| Signal | Why it matters |
-|---|---|
-| Live managers | You know which package managers are actually on this machine. |
-| Outdated packages | Humans get tables; agents get JSON without scraping terminal text. |
-| Project dependency audit | Repo manifests get checked, not just globally installed tools. |
-| Dry-run updates | You can preview changes before anything mutates. |
-
-## Demo
-
-```
-$ pum doctor && pum check && pum report --outdated
-```
-
-![pum demo](docs/assets/demo.gif)
-
-Expected result: manager status, outdated packages, and optional machine-readable JSON for agents or CI.
-
-## Why
-
-Every machine running more than one package manager (brew + npm + cargo + uv...) needs
-one place to ask "what's outdated" and "is any of this vulnerable" — without shelling
-out to twelve different tools with twelve different output formats. `pum` gives both a
-human at a terminal and an AI agent driving that terminal the same single, scriptable
-answer. It's also the tool an agent should run *before* touching a repo's dependencies:
-`pum project` and `pum audit` catch outdated/vulnerable manifest deps that the global
-adapters never see.
-
-### vs. topgrade / mise
-
-`pum` is a narrower tool than either — it doesn't manage dev-tool *versions per project*
-(that's mise) and it doesn't run arbitrary shell hooks or update the OS (that's topgrade,
-deliberately). It's the one that answers "what's outdated/vulnerable" in a format a
-script or an AI agent can consume directly.
-
-| | pum | topgrade | mise |
-|---|---|---|---|
-| Language / runtime dep | Rust, none | Rust, none | Rust, none |
-| Scope | packages & dev tools only | packages + OS + configs | per-project tool versions |
-| `--json` output | every read command | no | partial |
-| Project-manifest CVE audit | yes (`pum audit`, OSV.dev) | no | no |
-| OS updates | never (by design) | yes, optional | n/a |
-| Inventory database | yes (SQLite, queryable) | no | no |
-
-## Features
-
-| Feature | Why it matters |
-|---|---|
-| 12 adapters (brew, npm, pnpm, bun, uv, pipx, cargo, rustup, gem, go, mise, gh) | One command instead of twelve; only managers present on `PATH` activate |
-| `--json` on every read command | Agents and CI parse structured output, never scrape a table |
-| `pum project` / `pum audit` | Scans a **repo's own** manifest deps (not just global installs) and flags CVEs via OSV.dev |
-| SQLite inventory, status-preserving upsert | `scan` never wipes a prior `check` result; multiple installed versions of one tool persist |
-| Single static binary, zero runtime deps | Doesn't depend on the Python/Node runtimes it's meant to update |
-| Packages & dev tools only, by design | No OS updater adapter — `pum` never triggers a reboot |
-
-## Quick Start
-
-No Rust toolchain needed — prebuilt binary, pick one:
+## Start here — 60 seconds to a truthful answer
 
 ```bash
-# Homebrew (macOS/Linux)
+pum refresh --json    # read-only: inventory + native source checks + DuckDB snapshot
+pum status --json     # freshness, known newer versions, and source coverage
+```
+
+You get one stable contract for terminal, CI, and agents:
+
+```json
+{
+  "stale": false,
+  "latest_candidates": [{"name": "tool", "installed": "1.0.0", "latest": "1.1.0"}],
+  "source_coverage": [{"manager": "brew", "mode": "candidate_versions"}]
+}
+```
+
+`candidate_versions` means PUM queried that manager's non-mutating native source. `update_only` means PUM can inventory or update it, but does **not** yet know a safe package-level latest-version query. Unknown stays unknown — never silently rebranded as current.
+
+| Need | Run | What stays safe |
+|---|---|---|
+| One current answer | `pum refresh --json && pum status --json` | Read-only |
+| See only known upgrades | `pum report --outdated --json` | Read-only |
+| Preview every package action | `pum update --dry-run --all` | Read-only |
+| Apply the reviewed plan | `pum update --all` | Explicit mutation |
+| Daily freshness | `pum schedule --install` | Read-only `refresh` at 09:05 on macOS |
+
+## Why people use it
+
+Modern dev machines have brew, npm, Cargo, uv, mise, gems, and more. Their separate output formats make one simple question surprisingly hard: **“What needs my attention, and can I trust that answer?”**
+
+PUM turns that question into a small, inspectable loop:
+
+1. Discover installed tools across the managers actually present on your `PATH`.
+2. Query native read-only update sources where one exists.
+3. Persist a timestamped DuckDB snapshot so “what changed since yesterday?” is answerable.
+4. Preview first; mutate only when you say so.
+
+No OS updates. No arbitrary shell hooks. No pretend certainty.
+
+## Install
+
+### Homebrew
+
+```bash
 brew install Supersynergy/pum/pum
-
-# or the shell installer
-curl --proto '=https' --tlsv1.2 -LsSf https://github.com/Supersynergy/pum/releases/latest/download/pum-installer.sh | sh
+pum doctor
 ```
 
-```bash
-pum doctor                      # which managers are live on this machine
-```
-
-Or from source:
+### From source
 
 ```bash
 git clone https://github.com/Supersynergy/pum
 cd pum
-cargo install --path apps/pum   # → ~/.cargo/bin/pum
+cargo install --path apps/pum
+pum doctor
 ```
 
-Expected result: a table of the managers found on your `PATH`, each marked `live`.
+Prebuilt, checksum-verified archives are published on the [Releases page](https://github.com/Supersynergy/pum/releases). Do not pipe a network installer into a shell; download an immutable release asset and verify its `.sha256` first.
 
-## Usage
+## The useful paths
+
+### For a human at the terminal
 
 ```bash
-pum doctor                 # which managers are live
-pum scan                   # inventory all installed packages → SQLite + JSON
-pum check                  # find outdated packages (queries each manager)
-pum report                 # print table (installed vs latest)
-pum report --outdated --json
-pum update --dry-run --all # preview upgrades (mutates nothing)
-pum update --manager brew  # upgrade one manager's packages
-pum self                   # show manager self-update commands
-pum self --apply
-
-pum project [path]         # outdated PROJECT deps (package.json/Cargo.toml; default cwd)
-pum project --json         # machine-readable (deprecated packages flagged [deprecated])
-pum audit   [path]         # CVE/GHSA scan via OSV.dev (severity + fix version)
-pum audit   --json         # machine-readable advisories for CI gates
+pum doctor                         # active managers on this machine
+pum refresh                        # one read-only current snapshot
+pum report --outdated              # clear installed → latest table
+pum update --dry-run --all         # see every proposed command
+# review the plan, then:
+pum update --all                   # explicit upgrades only
 ```
 
-> `scan`/`check` cover **globally** installed tools. `project`/`audit` cover a **repo's
-> own dependencies** (the manifest) — the two scopes are intentionally separate.
+### For an AI coding agent or CI job
 
-Inventory DB: `$PUM_DB` or `~/.local/share/pum/inventory.db` (+ `inventory.json` mirror,
-written on every `pum scan`).
+```bash
+pum status --json
+# If stale is true, last_refresh is null, or current versions are required:
+pum refresh --json
+pum report --outdated --json
+```
+
+For third-party API work, do this *after* the local tool check:
+
+```bash
+freshdocs context "<task>" --project <project-root> --sync-stale
+```
+
+PUM answers **installed tool freshness**. Freshdocs answers the **current integration/API contract**. The PUM agent skill encodes this sequence and refuses to call an unsupported source “current.”
+
+### For a repo
+
+```bash
+pum project . --json               # manifest dependency freshness
+pum audit . --json                 # OSV.dev CVE/GHSA data and fixed versions
+```
+
+Global packages and project manifests are intentionally separate scopes. That keeps an agent from confusing “the globally installed CLI is current” with “this repository has safe dependencies.”
+
+## What PUM knows today
+
+| Manager | Latest-version source | Contract |
+|---|---|---|
+| Homebrew, npm, pnpm, Cargo, Rustup, RubyGems, mise | Each manager's native non-mutating outdated/check command | `candidate_versions` |
+| bun, uv tools, pipx, Go binaries, gh extensions | Safe package-level resolver not wired yet | `update_only` / unknown |
+
+PUM supports 12 adapters: brew, npm, pnpm, bun, uv, pipx, Cargo, Rustup, RubyGems, Go, mise, and GitHub CLI extensions. Only managers available on `PATH` activate.
+
+## Durable local history, not surveillance
+
+PUM stores its inventory in `~/.local/share/pum/inventory.duckdb` (or `$PUM_DB`) and keeps a JSON mirror for portability. Every `refresh` adds a run and package observations; `status --json` shows the database path and age. On first v0.2 startup, an old SQLite `inventory.db` imports once and remains untouched.
+
+DuckDB fits local snapshot history and analytics. DuckLake does not: it adds catalog/object-storage machinery for shared lakehouses that a single-user local CLI does not need. `rusqlite` remains only for one-way legacy import.
+
+## Safety boundaries
+
+| PUM does | PUM deliberately does not do |
+|---|---|
+| Read package-manager metadata | Update macOS or trigger a reboot |
+| Show source, timestamp, installed and latest candidate | Claim unknown sources are current |
+| Persist local history in one DuckDB file | Send your package inventory to a PUM service |
+| Preview upgrades before running them | Apply an upgrade without an explicit `update` command |
+
+`scan`, `check`, `refresh`, `status`, `report`, `project`, and `audit` are read-only toward package installation. `schedule --install` schedules only `refresh --json`, never an update.
+
+## Commands
+
+```text
+pum doctor                         managers available on PATH
+pum scan                           inventory → DuckDB + JSON mirror
+pum check                          native-manager upgrade candidates
+pum refresh [--json]               scan + check + append-only snapshot
+pum status [--json]                freshness, candidates, source coverage
+pum schedule --install             daily 09:05 macOS read-only refresh
+pum schedule --remove              remove that launchd job
+pum report [--outdated] [--json]   human table or machine contract
+pum update --dry-run --all         preview
+pum update --all                   explicit package updates
+pum self [--apply]                 show/apply supported manager self-updates
+pum project [path] [--json]        project manifest dependencies
+pum audit [path] [--json]          OSV vulnerability lookup
+```
 
 ## Architecture
 
 ```mermaid
 flowchart LR
-  CLI[pum CLI] --> Reg[Adapter registry]
-  Reg --> A1[brew / npm / pnpm / bun]
-  Reg --> A2[uv / pipx / cargo / rustup]
-  Reg --> A3[gem / go / mise / gh]
-  A1 & A2 & A3 --> DB[(SQLite inventory)]
-  CLI --> Project[project / audit]
-  Project --> OSV[OSV.dev CVE lookup]
+  Human[Human or agent] --> CLI[pum CLI]
+  CLI --> Snapshot[refresh: read-only snapshot]
+  Snapshot --> Sources[Native manager sources]
+  Sources --> Truth{Source coverage}
+  Truth -->|candidate_versions| Candidates[Known latest candidates]
+  Truth -->|update_only| Unknown[Explicit unknown]
+  Candidates --> DB[(Local DuckDB history)]
+  Unknown --> DB
+  Human -->|explicit only| Update[pum update]
 ```
 
-Dev via `just` (runs from source):
+## Development and release
 
 ```bash
-just build · just doctor · just scan · just check · just report --outdated · just test · just ci
+just ci
+cd apps/pum && cargo build --release
 ```
 
-## Why Rust
+See the [audit](docs/AUDIT_2026-07-23.md), [spec](docs/SPEC.md), [changelog](CHANGELOG.md), and [release contract](docs/RELEASE.md). A public tag requires tests, strict Clippy, Cargo Deny, migration smoke tests, pinned CI actions, and immutable-artifact verification.
 
-pum updates Python tooling (uv, pipx) — a Python implementation would depend on the very
-runtime it manages. A self-contained Rust binary has zero runtime deps, matching the
-direct peers (topgrade, mise, uv). See [CHANGELOG.md](CHANGELOG.md) (Python v0 → Rust port).
+## Security, contribution, license
 
-## Requirements
-
-Rust 1.96+ (edition 2024, pinned in `apps/pum/rust-toolchain.toml`) to build · zero
-runtime deps once built (single static binary). Adapters auto-activate only for
-managers present on your `PATH`.
-
-## Development
-
-```bash
-cd apps/pum
-cargo test
-cargo clippy --all-targets -- -D warnings && cargo fmt --check
-cargo deny check
-```
-
-## Release
-
-See [CHANGELOG.md](CHANGELOG.md) and [Releases](https://github.com/Supersynergy/pum/releases).
-
-## Security
-
-Report vulnerabilities privately. See [SECURITY.md](SECURITY.md).
-
-## Contributing
-
-See [CONTRIBUTING.md](CONTRIBUTING.md).
-
-## License
-
-[MIT](LICENSE) © Maxim M.
+[Security policy](SECURITY.md) · [Contributing](CONTRIBUTING.md) · [MIT License](LICENSE)

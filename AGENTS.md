@@ -13,6 +13,7 @@ Packages & developer tools only — never add an OS updater.
 
 ## Key paths
 
-- `~/.local/share/pum/inventory.db` — SQLite inventory (override `$PUM_DB`)
-- `~/.local/share/pum/inventory.json` — JSON mirror (written on scan)
+- `~/.local/share/pum/inventory.duckdb` — DuckDB inventory + history (override `$PUM_DB`)
+- `~/.local/share/pum/inventory.db` — legacy SQLite import source; never delete automatically
+- `~/.local/share/pum/inventory.json` — JSON mirror (written on scan/refresh)
 - `docs/SPEC.md` — adapter trait contract and data model

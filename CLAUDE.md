@@ -1,6 +1,6 @@
 # pum — Claude Instructions
 
-Single static **Rust** binary at `apps/pum/` (edition 2024; clap + rusqlite + serde + rayon).
+Single static **Rust** binary at `apps/pum/` (edition 2024; clap + DuckDB + serde + rayon).
 Install: `cargo install --path apps/pum` → `~/.cargo/bin/pum`.
 
 ## Gates (run after any edit, from `apps/pum/`)
@@ -18,4 +18,4 @@ cargo run -q -- doctor
 - Never trigger updates in `scan` or `check`.
 - **Packages & tools only — never the OS.** No `softwareupdate`/OS adapter (reboot risk).
 - New adapters: add a file in `src/adapters/`, impl the `Adapter` trait, register in `all_adapters()` (`mod.rs`). Keep a pure parse fn + a unit test in `main.rs`.
-- Inventory: `~/.local/share/pum/inventory.db` (override `$PUM_DB`); PK `(manager,name,installed)`; re-scan must not wipe a prior `check` status.
+- Inventory: `~/.local/share/pum/inventory.duckdb` (override `$PUM_DB`); SQLite is migration-only. PK `(manager,name,installed)`; re-scan must not wipe a prior `check` status.

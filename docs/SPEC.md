@@ -24,12 +24,13 @@ pub trait Adapter: Send + Sync {
 Rules:
 - Every subprocess call uses `run::run()` with a timeout (default 60s); it never panics on missing binary or non-zero exit.
 - Adapters return `Vec<Package>` and never panic; the scan wraps each in `catch_unwind` so one failing adapter cannot abort the run.
-- `list_outdated()` is separate from `list_installed()` and is ONLY called by `pum check`.
-- Updates are NEVER triggered during `scan` or `check`.
+- `list_outdated()` is separate from `list_installed()` and is called only by
+  the read-only `pum check` and `pum refresh` paths.
+- Updates are NEVER triggered during `scan`, `check`, or `refresh`.
 
 ## Data Model
 
-SQLite table `tools` at `~/.local/share/pum/inventory.db` (override with `$PUM_DB`):
+DuckDB table `tools` at `~/.local/share/pum/inventory.duckdb` (override with `$PUM_DB`):
 
 | Column      | Type | Notes |
 |-------------|------|-------|
@@ -45,7 +46,11 @@ Primary key: `(manager, name, installed)` — multiple versions of one name (e.g
 `python` 3.12/3.13/3.14) each persist. Upserts on scan/check; a re-`scan` never wipes a
 prior `check` result (latest/status only overwritten when the incoming row has a real value).
 
-Mirrored to `inventory.json` (same dir) on every `pum scan`.
+`refresh_runs` records completed read-only refreshes; `version_observations`
+contains the append-only package snapshot for each run. The current inventory
+is mirrored to `inventory.json` (same dir) on every `pum scan` and `pum refresh`.
+The former SQLite `inventory.db` is imported once at the default path and then
+left untouched.
 
 ## Commands
 
@@ -54,8 +59,11 @@ Mirrored to `inventory.json` (same dir) on every `pum scan`.
 | `pum doctor` | List adapters and their detection status | no | no |
 | `pum scan` | Inventory all installed packages | yes | no |
 | `pum check` | Query outdated packages | yes | no |
+| `pum refresh [--json]` | Sequential scan + source check + DuckDB snapshot | yes | no |
+| `pum status [--json]` | Freshness, candidates, and source coverage | no | no |
 | `pum report [--json] [--outdated] [--manager M]` | Print table from DB | no | no |
 | `pum update [--manager M\|--all] [--dry-run] [pkg...]` | Upgrade packages | no | yes |
+| `pum schedule --install\|--remove` | Install/remove daily macOS `refresh` | no | launchd only |
 | `pum self [--apply]` | Check/run manager self-updates | no | with --apply |
 
 ## Adapters Implemented
@@ -91,4 +99,6 @@ reboots and is too dangerous to automate. There is no adapter for it.
 ## Concurrency
 
 `scan` and `check` run adapters concurrently via `rayon` (`par_iter`), each wrapped in
-`catch_unwind`. `update` runs sequentially per adapter to avoid conflicting package-manager locks.
+`catch_unwind`. `refresh` executes its scan phase before its check phase so one
+DuckDB snapshot is persisted by one writer. `update` runs sequentially per adapter to avoid
+conflicting package-manager locks.
