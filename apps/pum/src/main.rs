@@ -221,9 +221,15 @@ fn upsert(conn: &Connection, pkgs: &[Package]) -> Result<()> {
 /// keep showing up as "outdated" in `report` even after a real upgrade.
 fn prune_stale(conn: &Connection, pkgs: &[Package]) -> Result<usize> {
     use std::collections::{HashMap, HashSet};
-    let multi_version: HashSet<String> = adapters::all_adapters()
-        .into_iter()
+    let adapters = adapters::all_adapters();
+    let multi_version: HashSet<String> = adapters
+        .iter()
         .filter(|a| a.multi_version())
+        .map(|a| a.name().to_string())
+        .collect();
+    let complete_inventory: HashSet<String> = adapters
+        .iter()
+        .filter(|a| a.complete_inventory())
         .map(|a| a.name().to_string())
         .collect();
 
@@ -251,6 +257,25 @@ fn prune_stale(conn: &Connection, pkgs: &[Package]) -> Result<usize> {
         let mut params: Vec<&dyn duckdb::ToSql> = vec![manager, name];
         for v in installed_versions {
             params.push(v);
+        }
+        pruned += conn.execute(&sql, params.as_slice())?;
+    }
+
+    // A complete inventory can also clean names that a prior parser invented.
+    // Only apply it if this run observed at least one package for that manager:
+    // an empty/failed command must never wipe persisted inventory.
+    let mut complete_names: HashMap<&String, HashSet<&String>> = HashMap::new();
+    for (manager, name) in current.keys() {
+        if complete_inventory.contains(manager) {
+            complete_names.entry(manager).or_default().insert(name);
+        }
+    }
+    for (manager, names) in complete_names {
+        let placeholders = names.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+        let sql = format!("DELETE FROM tools WHERE manager = ? AND name NOT IN ({placeholders})");
+        let mut params: Vec<&dyn duckdb::ToSql> = vec![manager];
+        for name in names {
+            params.push(name);
         }
         pruned += conn.execute(&sql, params.as_slice())?;
     }
@@ -358,7 +383,10 @@ fn source_coverage() -> Vec<SourceCoverage> {
                     "npm registry via npm outdated -g --json",
                     "candidate_versions",
                 ),
-                "pnpm" => ("npm registry via pnpm outdated -g", "candidate_versions"),
+                "pnpm" => (
+                    "npm registry via pnpm outdated -g --format json",
+                    "candidate_versions",
+                ),
                 "cargo" => (
                     "crates.io via cargo-install-update -l",
                     "candidate_versions",
@@ -366,7 +394,7 @@ fn source_coverage() -> Vec<SourceCoverage> {
                 "gem" => ("RubyGems via gem outdated", "candidate_versions"),
                 "mise" => ("mise registry via mise outdated", "candidate_versions"),
                 "rustup" => ("Rust distribution via rustup check", "candidate_versions"),
-                "bun" => ("no non-mutating global outdated query wired", "update_only"),
+                "bun" => ("Bun registry via bun outdated -g", "candidate_versions"),
                 "uv" => (
                     "no non-mutating uv tool outdated query wired",
                     "update_only",
@@ -450,6 +478,7 @@ fn refresh_inventory() -> Result<RefreshSummary> {
     let (updates, check_errors) = collect(|adapter| adapter.list_outdated());
     let mut errors = scan_errors;
     errors.extend(check_errors);
+    errors.extend(source_health_errors());
 
     let conn = db_connect()?;
     upsert(&conn, &installed)?;
@@ -531,6 +560,13 @@ where
         }
     }
     (pkgs, errs)
+}
+
+fn source_health_errors() -> Vec<String> {
+    live_adapters()
+        .into_iter()
+        .filter_map(|adapter| adapter.source_health_error())
+        .collect()
 }
 
 // ── commands ──────────────────────────────────────────────────────────────--
@@ -1335,17 +1371,46 @@ mod tests {
     }
 
     #[test]
-    fn pnpm_outdated_ignores_error_line() {
+    fn pnpm_json_ignores_error_text() {
         let out = " ERR_PNPM_NO_IMPORTER_MANIFEST_FOUND  No package.json (or package.yaml, or package.json5) was found in \"/x\".\n";
-        assert!(adapters::pnpm::parse_pnpm_outdated(out).is_empty());
+        assert!(adapters::pnpm::parse_pnpm_outdated_json(out).is_empty());
+        assert!(adapters::pnpm::pnpm_global_manifest_missing(out));
     }
 
     #[test]
-    fn pnpm_outdated_parses_real_table() {
-        let out = "Package  Current  Latest\nfoo      1.0.0    1.2.0\n";
-        let p = adapters::pnpm::parse_pnpm_outdated(out);
+    fn pnpm_installed_json_parses_global_dependencies() {
+        let out = r#"[
+          {
+            "path": "/Users/example/Library/pnpm/global/5",
+            "dependencies": {
+              "@scope/tool": { "version": "2.3.4" },
+              "wrangler": { "version": "4.114.0" }
+            }
+          }
+        ]"#;
+        let p = adapters::pnpm::parse_pnpm_installed_json(out);
+        assert_eq!(p.len(), 2);
+        assert_eq!(p[0].manager, "pnpm");
+        assert!(
+            p.iter()
+                .any(|pkg| pkg.name == "wrangler" && pkg.installed == "4.114.0")
+        );
+        assert!(
+            p.iter()
+                .all(|pkg| !matches!(pkg.name.as_str(), "│" | "└──" | "1"))
+        );
+    }
+
+    #[test]
+    fn pnpm_outdated_json_parses_candidates() {
+        let out = r#"{
+          "wrangler": { "current": "4.98.0", "latest": "4.114.0" }
+        }"#;
+        let p = adapters::pnpm::parse_pnpm_outdated_json(out);
         assert_eq!(p.len(), 1);
-        assert_eq!(p[0].name, "foo");
+        assert_eq!(p[0].name, "wrangler");
+        assert_eq!(p[0].installed, "4.98.0");
+        assert_eq!(p[0].latest.as_deref(), Some("4.114.0"));
     }
 
     #[test]
@@ -1363,6 +1428,29 @@ mod tests {
         let rows = super::load_all(&conn).unwrap();
         assert_eq!(rows.len(), 1, "the stale 0.11.2 ghost row must be gone");
         assert_eq!(rows[0].installed, "0.11.4");
+    }
+
+    #[test]
+    fn prune_stale_removes_pnpm_names_from_a_broken_table_parser() {
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        super::init_schema(&conn).unwrap();
+
+        super::upsert(
+            &conn,
+            &[
+                pkg("pnpm", "│", "dependencies:", None),
+                pkg("pnpm", "└──", "wrangler@4.114.0", None),
+                pkg("pnpm", "1", "package", None),
+            ],
+        )
+        .unwrap();
+        let fresh = [pkg("pnpm", "wrangler", "4.114.0", None)];
+        super::upsert(&conn, &fresh).unwrap();
+        super::prune_stale(&conn, &fresh).unwrap();
+
+        let rows = super::load_all(&conn).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].name, "wrangler");
     }
 
     #[test]
@@ -1552,6 +1640,21 @@ mod tests {
     fn bun_outdated_garbage_is_empty() {
         assert!(crate::project::parse_bun_outdated("", "/p").is_empty());
         assert!(crate::project::parse_bun_outdated("no pipes here", "/p").is_empty());
+    }
+
+    #[test]
+    fn bun_global_update_never_calls_the_bun_runtime_updater() {
+        use crate::adapters::Adapter;
+
+        let adapter = adapters::bun::BunAdapter;
+        assert_eq!(
+            adapter.upgrade_cmd(None),
+            vec!["bun", "update", "-g", "--latest"]
+        );
+        assert_eq!(
+            adapter.upgrade_cmd(Some("wrangler")),
+            vec!["bun", "update", "-g", "wrangler@latest"]
+        );
     }
 
     #[test]

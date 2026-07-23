@@ -1,4 +1,5 @@
 use crate::adapters::Adapter;
+use crate::project::parse_bun_outdated;
 use crate::run::run_default;
 use crate::types::Package;
 
@@ -33,14 +34,24 @@ impl Adapter for BunAdapter {
     }
 
     fn list_outdated(&self) -> Vec<Package> {
-        // bun has no native outdated
-        vec![]
+        let (_, out, _) = run_default(&["bun", "outdated", "-g"]);
+        parse_bun_outdated(&out, "bun-global")
     }
 
     fn upgrade_cmd(&self, pkg: Option<&str>) -> Vec<String> {
         match pkg {
-            Some(p) => vec!["bun".into(), "add".into(), "-g".into(), p.into()],
-            None => vec!["bun".into(), "upgrade".into()],
+            Some(p) => vec![
+                "bun".into(),
+                "update".into(),
+                "-g".into(),
+                format!("{p}@latest"),
+            ],
+            None => vec![
+                "bun".into(),
+                "update".into(),
+                "-g".into(),
+                "--latest".into(),
+            ],
         }
     }
 

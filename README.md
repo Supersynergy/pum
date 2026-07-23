@@ -165,8 +165,8 @@ Global packages and project manifests are intentionally separate scopes. That ke
 
 | Manager | Latest-version source | Contract |
 |---|---|---|
-| Homebrew, npm, pnpm, Cargo, Rustup, RubyGems, mise | Each manager's native non-mutating outdated/check command | `candidate_versions` |
-| bun, uv tools, pipx, Go binaries, gh extensions | Safe package-level resolver not wired yet | `update_only` / unknown |
+| Homebrew, npm, pnpm, Bun, Cargo, Rustup, RubyGems, mise | Each manager's native non-mutating outdated/check command | `candidate_versions` |
+| uv tools, pipx, Go binaries, gh extensions | Safe package-level resolver not wired yet | `update_only` / unknown |
 
 PUM supports 12 adapters: brew, npm, pnpm, bun, uv, pipx, Cargo, Rustup, RubyGems, Go, mise, and GitHub CLI extensions. Only managers available on `PATH` activate.
 
