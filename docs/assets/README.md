@@ -13,8 +13,8 @@
   warm low-light studio, a clear local command centre, and twelve subtle abstract
   package-source tiles converging into one transparent status panel. Put exactly these
   crisp, high-legibility sans-serif text blocks on the quiet left third:
-  “PUM” (largest), “Package Update Manager” (directly below), and “See what’s stale.
-  Choose what changes.” (smallest). The text must be real readable typography, not
+  “PUM” (largest), “Package Update Manager” (directly below), and “Stay updated — use
+  the latest features.” (smallest). The text must be real readable typography, not
   pseudo-text. Visual message: clarity, consent, safe updates, no silent machine
   changes. Palette: deep graphite and midnight navy, soft amber for attention, mint for
   verified/current, restrained cobalt. High-end editorial product illustration,
