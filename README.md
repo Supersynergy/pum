@@ -138,9 +138,19 @@ PUM cloud service. Add this to a client that supports MCP stdio servers:
 | `pum_refresh` | Read-only manager/source check and local DuckDB snapshot; never upgrades packages |
 | `pum_update_plan` | Exact proposed manager commands; dry plan only |
 | `pum_doctor` | Active managers and resolved binaries on `PATH`; read-only |
+| `pum_release_notes` | Embedded changelog for this binary plus stable release/changelog links |
 
 `pum mcp` never exposes a package-mutation tool. An agent can inspect and plan,
 but a human still runs an explicit reviewed `pum update …` command in a terminal.
+
+### Changelog links for agents
+
+Fetch only when needed; the MCP tool above works offline from the installed
+binary and also returns these stable URLs:
+
+- [Release notes](https://github.com/Supersynergy/pum/releases)
+- [Changelog](https://github.com/Supersynergy/pum/blob/main/CHANGELOG.md)
+- [Raw changelog](https://raw.githubusercontent.com/Supersynergy/pum/main/CHANGELOG.md)
 
 ### For a repo
 
