@@ -10,9 +10,12 @@ mod types;
 use std::io::IsTerminal;
 use std::path::PathBuf;
 
-use anyhow::Result;
+use anyhow::{Result, bail};
+use chrono::{DateTime, Duration, Utc};
 use clap::{Parser, Subcommand};
-use rusqlite::{Connection, params};
+use duckdb::{Config, Connection, params};
+use rusqlite::Connection as LegacyConnection;
+use serde::Serialize;
 
 use adapters::{Adapter, get_adapter, live_adapters};
 use types::Package;
@@ -53,6 +56,12 @@ fn db_path() -> PathBuf {
     if let Ok(p) = std::env::var("PUM_DB") {
         return PathBuf::from(p);
     }
+    data_dir().join("inventory.duckdb")
+}
+
+/// Pre-0.2 inventories were SQLite. The default path is kept solely so a
+/// user's local history can be imported once into the DuckDB default.
+fn legacy_db_path() -> PathBuf {
     data_dir().join("inventory.db")
 }
 
@@ -63,8 +72,7 @@ fn json_path() -> PathBuf {
 // ── db ────────────────────────────────────────────────────────────────────--
 fn init_schema(conn: &Connection) -> Result<()> {
     conn.execute_batch(
-        "PRAGMA journal_mode=WAL;
-         CREATE TABLE IF NOT EXISTS tools (
+        "CREATE TABLE IF NOT EXISTS tools (
             manager TEXT NOT NULL,
             name TEXT NOT NULL,
             installed TEXT NOT NULL DEFAULT '',
@@ -73,16 +81,103 @@ fn init_schema(conn: &Connection) -> Result<()> {
             source TEXT,
             checked_at TEXT,
             PRIMARY KEY (manager, name, installed)
+         );
+         CREATE TABLE IF NOT EXISTS refresh_runs (
+            run_id TEXT PRIMARY KEY,
+            started_at TEXT NOT NULL,
+            completed_at TEXT NOT NULL,
+            package_count BIGINT NOT NULL,
+            update_count BIGINT NOT NULL,
+            adapter_errors TEXT NOT NULL
+         );
+         CREATE TABLE IF NOT EXISTS version_observations (
+            run_id TEXT NOT NULL,
+            observed_at TEXT NOT NULL,
+            manager TEXT NOT NULL,
+            name TEXT NOT NULL,
+            installed TEXT NOT NULL,
+            latest TEXT,
+            status TEXT,
+            source TEXT
+         );
+         CREATE TABLE IF NOT EXISTS pum_meta (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL
          );",
     )?;
     Ok(())
 }
 
+fn is_sqlite_db(path: &std::path::Path) -> bool {
+    std::fs::read(path)
+        .ok()
+        .is_some_and(|bytes| bytes.starts_with(b"SQLite format 3\0"))
+}
+
+/// Import the original inventory only for the normal default path. An explicit
+/// PUM_DB is an operator-owned contract, so pointing it at SQLite returns an
+/// actionable error instead of silently changing its filename or contents.
+fn migrate_default_legacy_sqlite(conn: &Connection) -> Result<usize> {
+    let legacy_path = legacy_db_path();
+    if !legacy_path.is_file() {
+        return Ok(0);
+    }
+    let legacy = LegacyConnection::open(&legacy_path)?;
+    let mut stmt = match legacy
+        .prepare("SELECT manager,name,installed,latest,status,source,checked_at FROM tools")
+    {
+        Ok(stmt) => stmt,
+        Err(_) => return Ok(0),
+    };
+    let rows = stmt.query_map([], |r| {
+        Ok(Package {
+            manager: r.get(0)?,
+            name: r.get(1)?,
+            installed: r.get(2)?,
+            latest: r.get(3)?,
+            status: r.get(4)?,
+            source: r.get(5)?,
+            checked_at: r.get(6).unwrap_or_default(),
+        })
+    })?;
+    let pkgs: Vec<Package> = rows.filter_map(|r| r.ok()).collect();
+    upsert(conn, &pkgs)?;
+    conn.execute(
+        "INSERT INTO pum_meta (key,value) VALUES ('legacy_sqlite_import', ?1)
+         ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+        params![legacy_path.display().to_string()],
+    )?;
+    Ok(pkgs.len())
+}
+
 fn db_connect() -> Result<Connection> {
     let dir = data_dir();
     std::fs::create_dir_all(&dir)?;
-    let conn = Connection::open(db_path())?;
+    let path = db_path();
+    if std::env::var_os("PUM_DB").is_some() && path.is_file() && is_sqlite_db(&path) {
+        bail!(
+            "PUM_DB points at a legacy SQLite file ({}). Set PUM_DB to a .duckdb path, then run pum refresh.",
+            path.display()
+        );
+    }
+    let created = !path.exists();
+    // PUM uses only parameterized local tables. Disable DuckDB external access
+    // and extension autoload so inventory data can never trigger a network/file
+    // read or an extension install through a future query change.
+    let config = Config::default()
+        .enable_external_access(false)?
+        .enable_autoload_extension(false)?;
+    let conn = Connection::open_with_flags(&path, config)?;
     init_schema(&conn)?;
+    if created && std::env::var_os("PUM_DB").is_none() {
+        let imported = migrate_default_legacy_sqlite(&conn)?;
+        if imported > 0 {
+            eprintln!(
+                "pum: imported {imported} legacy SQLite inventory rows into {}",
+                path.display()
+            );
+        }
+    }
     Ok(conn)
 }
 
@@ -152,11 +247,36 @@ fn prune_stale(conn: &Connection, pkgs: &[Package]) -> Result<usize> {
         let sql = format!(
             "DELETE FROM tools WHERE manager = ? AND name = ? AND installed NOT IN ({placeholders})"
         );
-        let mut params: Vec<&dyn rusqlite::ToSql> = vec![manager, name];
+        let mut params: Vec<&dyn duckdb::ToSql> = vec![manager, name];
         for v in installed_versions {
             params.push(v);
         }
         pruned += conn.execute(&sql, params.as_slice())?;
+    }
+
+    // `brew outdated --json` identifies a tapped formula as `tap/name`, while
+    // `brew list` uses its installed token `name`. Remove the legacy alias as
+    // soon as the canonical token was observed, or it will remain an outdated
+    // ghost even after a successful upgrade.
+    let brew_tokens: HashSet<&str> = current
+        .keys()
+        .filter(|(manager, _)| manager == "brew")
+        .map(|(_, name)| name.as_str())
+        .collect();
+    for old in load_all(conn)? {
+        if old.manager == "brew"
+            && old.name.contains('/')
+            && old
+                .name
+                .rsplit('/')
+                .next()
+                .is_some_and(|token| brew_tokens.contains(token))
+        {
+            pruned += conn.execute(
+                "DELETE FROM tools WHERE manager = ?1 AND name = ?2 AND installed = ?3",
+                params![old.manager, old.name, old.installed],
+            )?;
+        }
     }
     Ok(pruned)
 }
@@ -181,6 +301,207 @@ fn load_all(conn: &Connection) -> Result<Vec<Package>> {
 fn write_json(pkgs: &[Package]) -> Result<()> {
     std::fs::write(json_path(), serde_json::to_string_pretty(pkgs)?)?;
     Ok(())
+}
+
+#[derive(Debug, Serialize)]
+struct SourceCoverage {
+    manager: String,
+    source: &'static str,
+    mode: &'static str,
+}
+
+#[derive(Debug, Serialize)]
+struct RefreshSummary {
+    database: String,
+    started_at: String,
+    completed_at: String,
+    package_count: usize,
+    update_count: usize,
+    adapter_errors: Vec<String>,
+    source_coverage: Vec<SourceCoverage>,
+}
+
+#[derive(Debug, Serialize)]
+struct LastRefresh {
+    completed_at: String,
+    package_count: i64,
+    update_count: i64,
+    adapter_errors: Vec<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct StatusSummary {
+    database: String,
+    schema: &'static str,
+    inventory_count: usize,
+    outdated_count: usize,
+    last_refresh: Option<LastRefresh>,
+    stale: bool,
+    latest_candidates: Vec<Package>,
+    source_coverage: Vec<SourceCoverage>,
+}
+
+/// The native manager commands below are the source of truth. A manager with
+/// `update_only` is deliberately *not* reported as current: it has a safe
+/// updater but no non-mutating latest-version query in PUM yet.
+fn source_coverage() -> Vec<SourceCoverage> {
+    live_adapters()
+        .into_iter()
+        .map(|adapter| {
+            let (source, mode) = match adapter.name() {
+                "brew" => (
+                    "Homebrew API via brew outdated --json=v2",
+                    "candidate_versions",
+                ),
+                "npm" => (
+                    "npm registry via npm outdated -g --json",
+                    "candidate_versions",
+                ),
+                "pnpm" => ("npm registry via pnpm outdated -g", "candidate_versions"),
+                "cargo" => (
+                    "crates.io via cargo-install-update -l",
+                    "candidate_versions",
+                ),
+                "gem" => ("RubyGems via gem outdated", "candidate_versions"),
+                "mise" => ("mise registry via mise outdated", "candidate_versions"),
+                "rustup" => ("Rust distribution via rustup check", "candidate_versions"),
+                "bun" => ("no non-mutating global outdated query wired", "update_only"),
+                "uv" => (
+                    "no non-mutating uv tool outdated query wired",
+                    "update_only",
+                ),
+                "pipx" => ("no non-mutating pipx outdated query wired", "update_only"),
+                "go" => (
+                    "installed Go binaries lack reliable provenance",
+                    "update_only",
+                ),
+                "gh" => (
+                    "no non-mutating gh extension outdated query wired",
+                    "update_only",
+                ),
+                _ => ("unknown", "unknown"),
+            };
+            SourceCoverage {
+                manager: adapter.name().to_string(),
+                source,
+                mode,
+            }
+        })
+        .collect()
+}
+
+fn record_refresh(
+    conn: &Connection,
+    started_at: &str,
+    pkgs: &[Package],
+    update_count: usize,
+    errors: &[String],
+) -> Result<RefreshSummary> {
+    let completed_at = Utc::now().to_rfc3339();
+    let run_id = format!("{}-{}", completed_at, std::process::id());
+    let errors_json = serde_json::to_string(errors)?;
+    conn.execute(
+        "INSERT INTO refresh_runs
+         (run_id,started_at,completed_at,package_count,update_count,adapter_errors)
+         VALUES (?1,?2,?3,?4,?5,?6)",
+        params![
+            run_id,
+            started_at,
+            completed_at,
+            pkgs.len() as i64,
+            update_count as i64,
+            errors_json
+        ],
+    )?;
+    let mut statement = conn.prepare(
+        "INSERT INTO version_observations
+         (run_id,observed_at,manager,name,installed,latest,status,source)
+         VALUES (?1,?2,?3,?4,?5,?6,?7,?8)",
+    )?;
+    for pkg in pkgs {
+        statement.execute(params![
+            run_id,
+            completed_at,
+            pkg.manager,
+            pkg.name,
+            pkg.installed,
+            pkg.latest,
+            pkg.status,
+            pkg.source,
+        ])?;
+    }
+    Ok(RefreshSummary {
+        database: db_path().display().to_string(),
+        started_at: started_at.to_string(),
+        completed_at,
+        package_count: pkgs.len(),
+        update_count,
+        adapter_errors: errors.to_vec(),
+        source_coverage: source_coverage(),
+    })
+}
+
+fn refresh_inventory() -> Result<RefreshSummary> {
+    let started_at = Utc::now().to_rfc3339();
+    // Deliberately sequential: DuckDB has a single-writer model and a refresh
+    // must snapshot one scan followed by one source check, never two writers.
+    let (installed, scan_errors) = collect(|adapter| adapter.list_installed());
+    let (updates, check_errors) = collect(|adapter| adapter.list_outdated());
+    let mut errors = scan_errors;
+    errors.extend(check_errors);
+
+    let conn = db_connect()?;
+    upsert(&conn, &installed)?;
+    prune_stale(&conn, &installed)?;
+    upsert(&conn, &updates)?;
+    let all = load_all(&conn)?;
+    write_json(&all)?;
+    let update_count = all
+        .iter()
+        .filter(|pkg| pkg.status.as_deref() == Some("outdated"))
+        .count();
+    record_refresh(&conn, &started_at, &all, update_count, &errors)
+}
+
+fn load_status(conn: &Connection) -> Result<StatusSummary> {
+    let all = load_all(conn)?;
+    let latest_candidates: Vec<Package> = all
+        .iter()
+        .filter(|pkg| pkg.status.as_deref() == Some("outdated"))
+        .cloned()
+        .collect();
+    let last_refresh = conn
+        .query_row(
+            "SELECT completed_at,package_count,update_count,adapter_errors
+             FROM refresh_runs ORDER BY completed_at DESC LIMIT 1",
+            [],
+            |row| {
+                let adapter_errors: String = row.get(3)?;
+                Ok(LastRefresh {
+                    completed_at: row.get(0)?,
+                    package_count: row.get(1)?,
+                    update_count: row.get(2)?,
+                    adapter_errors: serde_json::from_str(&adapter_errors).unwrap_or_default(),
+                })
+            },
+        )
+        .ok();
+    let stale = last_refresh
+        .as_ref()
+        .and_then(|run| DateTime::parse_from_rfc3339(&run.completed_at).ok())
+        .is_none_or(|checked_at| {
+            Utc::now().signed_duration_since(checked_at.with_timezone(&Utc)) > Duration::hours(26)
+        });
+    Ok(StatusSummary {
+        database: db_path().display().to_string(),
+        schema: "duckdb-v1",
+        inventory_count: all.len(),
+        outdated_count: latest_candidates.len(),
+        last_refresh,
+        stale,
+        latest_candidates,
+        source_coverage: source_coverage(),
+    })
 }
 
 // ── parallel collection ───────────────────────────────────────────────────--
@@ -238,7 +559,9 @@ fn cmd_scan() -> Result<()> {
     let conn = db_connect()?;
     upsert(&conn, &pkgs)?;
     prune_stale(&conn, &pkgs)?;
-    write_json(&pkgs)?;
+    // The JSON mirror must carry a prior check's latest/status values too,
+    // not only the raw rows returned by this scan.
+    write_json(&load_all(&conn)?)?;
 
     let mut by_mgr: std::collections::BTreeMap<String, usize> = Default::default();
     for p in &pkgs {
@@ -277,6 +600,86 @@ fn cmd_check() -> Result<()> {
         println!("  {} {}", c("adapter errors:", YELLOW), errs.join("; "));
     }
     println!();
+    Ok(())
+}
+
+fn cmd_refresh(json: bool) -> Result<()> {
+    let summary = refresh_inventory()?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&summary)?);
+        return Ok(());
+    }
+    println!(
+        "\n{} — {} packages, {} updates\n",
+        c("pum refresh", BOLD),
+        summary.package_count,
+        c(
+            &summary.update_count.to_string(),
+            if summary.update_count > 0 {
+                YELLOW
+            } else {
+                GREEN
+            }
+        )
+    );
+    for coverage in &summary.source_coverage {
+        let mode = if coverage.mode == "candidate_versions" {
+            c("latest", GREEN)
+        } else {
+            c("needs source", YELLOW)
+        };
+        println!("  {:<7} {:<14} {}", coverage.manager, mode, coverage.source);
+    }
+    if !summary.adapter_errors.is_empty() {
+        println!(
+            "\n  {} {}",
+            c("adapter errors:", YELLOW),
+            summary.adapter_errors.join("; ")
+        );
+    }
+    println!("\n  db→ {}\n", summary.database);
+    Ok(())
+}
+
+fn cmd_status(json: bool) -> Result<()> {
+    let conn = db_connect()?;
+    let status = load_status(&conn)?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&status)?);
+        return Ok(());
+    }
+    let freshness = if status.stale {
+        c("stale — run: pum refresh", YELLOW)
+    } else {
+        c("fresh", GREEN)
+    };
+    println!(
+        "\n{} — {} packages, {} updates, {}\n",
+        c("pum status", BOLD),
+        status.inventory_count,
+        c(
+            &status.outdated_count.to_string(),
+            if status.outdated_count > 0 {
+                YELLOW
+            } else {
+                GREEN
+            }
+        ),
+        freshness
+    );
+    match &status.last_refresh {
+        Some(run) => println!("  last refresh: {}", run.completed_at),
+        None => println!("  last refresh: never"),
+    }
+    for coverage in &status.source_coverage {
+        let mode = if coverage.mode == "candidate_versions" {
+            c("latest", GREEN)
+        } else {
+            c("needs source", YELLOW)
+        };
+        println!("  {:<7} {:<14} {}", coverage.manager, mode, coverage.source);
+    }
+    println!("\n  db→ {}\n", status.database);
     Ok(())
 }
 
@@ -377,6 +780,7 @@ fn cmd_update(
     // specific packages → find owning manager from inventory
     if !packages.is_empty() {
         let conn = db_connect()?;
+        let mut applied = false;
         for pkg in packages {
             let mgr: Option<String> = conn
                 .query_row(
@@ -393,7 +797,11 @@ fn cmd_update(
                 println!("  {pkg}: adapter '{mgr}' not in registry");
                 continue;
             };
-            run_one(adapter.as_ref(), Some(pkg), dry_run);
+            applied |= run_one(adapter.as_ref(), Some(pkg), dry_run);
+        }
+        if applied {
+            println!("\n  refreshing version ledger after successful update …");
+            cmd_refresh(false)?;
         }
         return Ok(());
     }
@@ -421,11 +829,15 @@ fn cmd_update(
             print!("{out}");
             if rc != 0 {
                 println!("{} {err}", c("topgrade error:", RED));
+            } else {
+                println!("\n  refreshing version ledger after successful update …");
+                cmd_refresh(false)?;
             }
         }
         return Ok(());
     }
 
+    let mut applied = false;
     for a in &adapters {
         if a.report_only() {
             let targeted = manager == Some(a.name());
@@ -439,19 +851,23 @@ fn cmd_update(
                 continue;
             }
         }
-        run_one(a.as_ref(), None, dry_run);
+        applied |= run_one(a.as_ref(), None, dry_run);
+    }
+    if applied {
+        println!("\n  refreshing version ledger after successful update …");
+        cmd_refresh(false)?;
     }
     Ok(())
 }
 
-fn run_one(adapter: &dyn Adapter, pkg: Option<&str>, dry_run: bool) {
+fn run_one(adapter: &dyn Adapter, pkg: Option<&str>, dry_run: bool) -> bool {
     let argv = adapter.upgrade_cmd(pkg);
     if argv.is_empty() {
-        return;
+        return false;
     }
     if dry_run {
         println!("  [dry-run] [{}] {}", adapter.name(), argv.join(" "));
-        return;
+        return false;
     }
     println!("  [{}] {} …", adapter.name(), argv.join(" "));
     let refs: Vec<&str> = argv.iter().map(|s| s.as_str()).collect();
@@ -466,10 +882,12 @@ fn run_one(adapter: &dyn Adapter, pkg: Option<&str>, dry_run: bool) {
     } else {
         println!("    {}", c("ok", GREEN));
     }
+    rc == 0
 }
 
 fn cmd_self(apply: bool) -> Result<()> {
     println!("\n{} — manager self-update\n", c("pum self", BOLD));
+    let mut applied = false;
     for a in live_adapters() {
         let argv = a.self_update_cmd();
         if argv.is_empty() {
@@ -490,6 +908,7 @@ fn cmd_self(apply: bool) -> Result<()> {
                 );
             } else {
                 println!("    {}", c("ok", GREEN));
+                applied = true;
             }
         } else {
             println!("  [{}] would run: {}", a.name(), argv.join(" "));
@@ -497,7 +916,126 @@ fn cmd_self(apply: bool) -> Result<()> {
     }
     if !apply {
         println!("\n  Run with --apply to execute.\n");
+    } else if applied {
+        println!("\n  refreshing version ledger after manager self-update …");
+        cmd_refresh(false)?;
     }
+    Ok(())
+}
+
+const LAUNCH_AGENT_LABEL: &str = "dev.supersynergy.pum.refresh";
+
+fn launch_agent_path() -> Result<PathBuf> {
+    let home = std::env::var("HOME")
+        .map(PathBuf::from)
+        .map_err(|_| anyhow::anyhow!("HOME is required to install the daily macOS LaunchAgent"))?;
+    Ok(home
+        .join("Library")
+        .join("LaunchAgents")
+        .join(format!("{LAUNCH_AGENT_LABEL}.plist")))
+}
+
+fn xml_escape(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;")
+}
+
+fn daily_schedule_plist(program: &str, log: &str, hour: u8, minute: u8) -> String {
+    format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>{LAUNCH_AGENT_LABEL}</string>
+  <key>ProgramArguments</key><array>
+    <string>{program}</string><string>refresh</string><string>--json</string>
+  </array>
+  <key>StartCalendarInterval</key><dict>
+    <key>Hour</key><integer>{hour}</integer>
+    <key>Minute</key><integer>{minute}</integer>
+  </dict>
+  <key>ProcessType</key><string>Background</string>
+  <key>ThrottleInterval</key><integer>900</integer>
+  <key>StandardOutPath</key><string>{log}</string>
+  <key>StandardErrorPath</key><string>{log}</string>
+</dict></plist>
+"#,
+        program = xml_escape(program),
+        log = xml_escape(log),
+    )
+}
+
+fn launchd_domain() -> Result<String> {
+    let (rc, out, err) = run::run(&["id", "-u"], 10);
+    if rc != 0 {
+        bail!("could not determine launchd user id: {}", err.trim());
+    }
+    let uid = out.trim();
+    if uid.is_empty() || !uid.bytes().all(|b| b.is_ascii_digit()) {
+        bail!("could not determine numeric launchd user id");
+    }
+    Ok(format!("gui/{uid}"))
+}
+
+fn cmd_schedule(install: bool, remove: bool, hour: u8, minute: u8) -> Result<()> {
+    if hour > 23 || minute > 59 {
+        bail!("--hour must be 0..23 and --minute must be 0..59");
+    }
+    if !cfg!(target_os = "macos") {
+        bail!("pum schedule uses launchd and is currently available on macOS only");
+    }
+    let plist = launch_agent_path()?;
+    if remove {
+        let domain = launchd_domain()?;
+        let plist_arg = plist.display().to_string();
+        let _ = run::run(&["launchctl", "bootout", &domain, &plist_arg], 20);
+        if plist.exists() {
+            std::fs::remove_file(&plist)?;
+        }
+        println!("removed daily refresh schedule: {}", plist.display());
+        return Ok(());
+    }
+
+    if !install {
+        println!(
+            "daily source check is not installed. Run: pum schedule --install --hour {hour} --minute {minute}"
+        );
+        return Ok(());
+    }
+
+    let program = std::env::current_exe()?;
+    let log = data_dir().join("pum-refresh.log");
+    let parent = plist
+        .parent()
+        .ok_or_else(|| anyhow::anyhow!("LaunchAgent path has no parent"))?;
+    std::fs::create_dir_all(parent)?;
+    std::fs::create_dir_all(data_dir())?;
+    std::fs::write(
+        &plist,
+        daily_schedule_plist(
+            &program.display().to_string(),
+            &log.display().to_string(),
+            hour,
+            minute,
+        ),
+    )?;
+
+    let domain = launchd_domain()?;
+    let plist_arg = plist.display().to_string();
+    let _ = run::run(&["launchctl", "bootout", &domain, &plist_arg], 20);
+    let (rc, _out, err) = run::run(&["launchctl", "bootstrap", &domain, &plist_arg], 20);
+    if rc != 0 {
+        bail!("launchctl bootstrap failed: {}", err.trim());
+    }
+    println!(
+        "daily source check installed: {:02}:{:02} → {}",
+        hour,
+        minute,
+        plist.display()
+    );
     Ok(())
 }
 
@@ -642,6 +1180,16 @@ enum Cmd {
     Scan,
     /// Check each manager for available updates
     Check,
+    /// Scan then check sources, persist a DuckDB version snapshot
+    Refresh {
+        #[arg(long)]
+        json: bool,
+    },
+    /// Show freshness, latest-version candidates, and source coverage
+    Status {
+        #[arg(long)]
+        json: bool,
+    },
     /// Show the inventory table (installed vs latest)
     Report {
         #[arg(long)]
@@ -672,6 +1220,17 @@ enum Cmd {
     },
     /// Which adapters are live on this host
     Doctor,
+    /// Install/remove a daily, read-only macOS source check (launchd)
+    Schedule {
+        #[arg(long, conflicts_with = "remove")]
+        install: bool,
+        #[arg(long, conflicts_with = "install")]
+        remove: bool,
+        #[arg(long, default_value_t = 9)]
+        hour: u8,
+        #[arg(long, default_value_t = 5)]
+        minute: u8,
+    },
     /// Scan a project's manifest for outdated dependencies (default: cwd)
     Project {
         /// Project directory (defaults to the current directory)
@@ -693,6 +1252,8 @@ fn main() {
     let result = match cli.cmd {
         Cmd::Scan => cmd_scan(),
         Cmd::Check => cmd_check(),
+        Cmd::Refresh { json } => cmd_refresh(json),
+        Cmd::Status { json } => cmd_status(json),
         Cmd::Report {
             json,
             outdated,
@@ -707,6 +1268,12 @@ fn main() {
         } => cmd_update(&packages, manager.as_deref(), all, dry_run, apply),
         Cmd::SelfUpdate { apply } => cmd_self(apply),
         Cmd::Doctor => cmd_doctor(),
+        Cmd::Schedule {
+            install,
+            remove,
+            hour,
+            minute,
+        } => cmd_schedule(install, remove, hour, minute),
         Cmd::Project { path, json } => cmd_project(path.as_deref(), json),
         Cmd::Audit { path, json } => cmd_audit(path.as_deref(), json),
     };
@@ -750,7 +1317,7 @@ mod tests {
 
     #[test]
     fn prune_stale_removes_ghost_row_after_upgrade() {
-        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        let conn = duckdb::Connection::open_in_memory().unwrap();
         super::init_schema(&conn).unwrap();
 
         // v1 installed + a `check` marks it outdated (mirrors the real scan→check flow)
@@ -767,7 +1334,7 @@ mod tests {
 
     #[test]
     fn prune_stale_keeps_multi_version_adapter_rows() {
-        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        let conn = duckdb::Connection::open_in_memory().unwrap();
         super::init_schema(&conn).unwrap();
 
         super::upsert(&conn, &[pkg("mise", "python", "3.12.0", None)]).unwrap();
@@ -784,6 +1351,63 @@ mod tests {
     }
 
     #[test]
+    fn prune_stale_removes_tapped_brew_alias_after_upgrade() {
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        super::init_schema(&conn).unwrap();
+        super::upsert(
+            &conn,
+            &[pkg(
+                "brew",
+                "ariga/tap/atlas",
+                "v1.2.4-old",
+                Some("outdated"),
+            )],
+        )
+        .unwrap();
+        let fresh = [pkg("brew", "atlas", "v1.2.4-new", None)];
+        super::upsert(&conn, &fresh).unwrap();
+        super::prune_stale(&conn, &fresh).unwrap();
+
+        let rows = super::load_all(&conn).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].name, "atlas");
+    }
+
+    #[test]
+    fn refresh_history_preserves_latest_candidates() {
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        super::init_schema(&conn).unwrap();
+        let packages = vec![Package::outdated(
+            "npm",
+            "pum-test",
+            "1.0.0",
+            "1.1.0",
+            "npm-global",
+        )];
+        super::upsert(&conn, &packages).unwrap();
+        let summary = super::record_refresh(
+            &conn,
+            "2026-07-23T00:00:00Z",
+            &super::load_all(&conn).unwrap(),
+            1,
+            &[],
+        )
+        .unwrap();
+        assert_eq!(summary.update_count, 1);
+        let status = super::load_status(&conn).unwrap();
+        assert_eq!(status.outdated_count, 1);
+        assert_eq!(status.latest_candidates[0].latest.as_deref(), Some("1.1.0"));
+    }
+
+    #[test]
+    fn daily_schedule_runs_refresh_without_updates() {
+        let plist = super::daily_schedule_plist("/tmp/pum", "/tmp/pum.log", 9, 5);
+        assert!(plist.contains("<string>refresh</string>"));
+        assert!(plist.contains("<string>--json</string>"));
+        assert!(!plist.contains("<string>update</string>"));
+    }
+
+    #[test]
     fn brew_outdated_parses() {
         let j = r#"{"formulae":[{"name":"foo","installed_versions":["1.0"],"current_version":"1.1"}],"casks":[]}"#;
         let p = adapters::brew::parse_brew_outdated(j);
@@ -795,6 +1419,13 @@ mod tests {
     }
 
     #[test]
+    fn brew_outdated_normalizes_tapped_formula_name() {
+        let j = r#"{"formulae":[{"name":"ariga/tap/atlas","installed_versions":["1.0"],"current_version":"1.1"}],"casks":[]}"#;
+        let p = adapters::brew::parse_brew_outdated(j);
+        assert_eq!(p[0].name, "atlas");
+    }
+
+    #[test]
     fn brew_outdated_cask_installed_versions_is_an_array() {
         // installed_versions is an array for casks too — was being read as a
         // string and always falling back to "unknown".
@@ -803,6 +1434,16 @@ mod tests {
         assert_eq!(p.len(), 1);
         assert_eq!(p[0].installed, "3.2.3");
         assert_eq!(p[0].latest.as_deref(), Some("3.3.0"));
+    }
+
+    #[test]
+    fn brew_installed_casks_keep_an_upgrade_visible_to_pruning() {
+        let j = r#"{"casks":[{"token":"demo-cask","installed":"2.0.0","version":"2.0.0"}]}"#;
+        let p = adapters::brew::parse_brew_installed_casks(j);
+        assert_eq!(p.len(), 1);
+        assert_eq!(p[0].name, "demo-cask");
+        assert_eq!(p[0].installed, "2.0.0");
+        assert_eq!(p[0].source, "brew-cask");
     }
 
     #[test]

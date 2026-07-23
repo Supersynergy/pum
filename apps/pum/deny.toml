@@ -10,12 +10,19 @@ ignore = []
 [licenses]
 version = 2
 # Exactly the permissive licenses present in the dependency tree (warning-clean).
-# A new dep with a different license will fail CI loudly — add it here deliberately.
+# The DuckDB 1.10505.0 binding adds Zlib/ISC/BSD/CC0/CDLA-Permissive transitive
+# crates (its build-time TLS/registry path and Arrow support). Each is reviewed
+# here deliberately; a new license still fails CI loudly.
 allow = [
     "MIT",
     "Apache-2.0",
     "Unicode-3.0",
     "Unlicense",
     "BSD-2-Clause",
+    "BSD-3-Clause",
+    "CC0-1.0",
+    "ISC",
+    "Zlib",
+    "CDLA-Permissive-2.0",
 ]
 confidence-threshold = 0.8

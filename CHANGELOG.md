@@ -5,6 +5,44 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed
+- **Brew cask upgrades no longer leave obsolete candidates in the DuckDB
+  ledger.** Formula and cask inventory are now read independently; casks come
+  from `brew info --cask --json=v2 --installed`. One untrusted third-party cask
+  can therefore no longer hide every other cask and preserve a ghost
+  “outdated” row after a successful upgrade.
+
+### Changed
+- Rebuilt the public README around the first useful minute: read-only current
+  answer, review-before-mutation path, human/agent/repository recipes, explicit
+  source coverage, and durable local-data boundaries.
+- Added a human-centred social/README hero and preserved its exact image prompt
+  and regeneration gate in `docs/assets/README.md`.
+- Pinned every GitHub Action to a reviewed commit SHA; cargo-dist and Rust
+  bootstraps no longer pipe a remote script into a shell. Release credentials
+  are limited to the publish job.
+
+## [0.2.0] - 2026-07-23
+
+### Added
+- **DuckDB version ledger:** default inventory is now
+  `~/.local/share/pum/inventory.duckdb`, with `refresh_runs` and append-only
+  `version_observations` for historical latest-version queries.
+- **`pum refresh [--json]`:** sequential, read-only `scan` + native-source
+  check that writes one consistent inventory snapshot and JSON mirror.
+- **`pum status [--json]`:** machine-readable freshness, latest candidates,
+  DuckDB path, and explicit per-adapter source coverage for AI agents/CI.
+- **`pum schedule --install`:** opt-in macOS launchd job at 09:05 by default;
+  it invokes only `pum refresh --json`, never upgrades packages.
+
+### Changed
+- Existing default SQLite `inventory.db` imports once into DuckDB; the legacy
+  file is left intact. An explicit `$PUM_DB` must now target a DuckDB file.
+- The JSON mirror now serializes the persisted inventory so `scan` retains a
+  prior check's `latest` and `status` values.
+- Latest-version coverage is truthful: bun, uv, pipx, Go, and gh extension
+  adapters are `update_only` until a safe non-mutating source resolver exists.
+
 ### Changed
 - Refreshed README positioning around safe local package health checks, visible signals,
   and expected demo output.

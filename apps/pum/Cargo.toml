@@ -1,6 +1,6 @@
 [package]
 name = "pum"
-version = "0.1.2"
+version = "0.2.0"
 edition = "2024"
 description = "Safe local package health check for dev machines and AI coding agents."
 default-run = "pum"
@@ -20,6 +20,9 @@ path = "src/main.rs"
 [dependencies]
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
+# DuckDB is the live inventory/history store. rusqlite remains only to import a
+# pre-0.2 SQLite inventory once; it can be removed in the next breaking release.
+duckdb = { version = "=1.10505.0", features = ["bundled"] }
 rusqlite = { version = "0.40", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

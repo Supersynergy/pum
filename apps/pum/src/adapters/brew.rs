@@ -5,6 +5,10 @@ use serde_json::Value;
 
 pub struct BrewAdapter;
 
+fn canonical_formula_name(name: &str) -> &str {
+    name.rsplit('/').next().unwrap_or(name)
+}
+
 impl Adapter for BrewAdapter {
     fn name(&self) -> &str {
         "brew"
@@ -14,7 +18,10 @@ impl Adapter for BrewAdapter {
     }
 
     fn list_installed(&self) -> Vec<Package> {
-        let (_, out, _) = run_default(&["brew", "list", "--versions"]);
+        // Formula and cask discovery are intentionally separate. A single
+        // untrusted cask must not make every cask disappear from the inventory
+        // and leave old (already-upgraded) versions as ghosts in DuckDB.
+        let (_, out, _) = run_default(&["brew", "list", "--formula", "--versions"]);
         let mut packages = Vec::new();
         for line in out.lines() {
             let parts: Vec<&str> = line.split_whitespace().collect();
@@ -28,6 +35,11 @@ impl Adapter for BrewAdapter {
             } else if parts.len() == 1 {
                 packages.push(Package::new("brew", parts[0], "unknown", "brew"));
             }
+        }
+        let (rc, cask_json, _) =
+            run_default(&["brew", "info", "--cask", "--json=v2", "--installed"]);
+        if rc == 0 {
+            packages.extend(parse_brew_installed_casks(&cask_json));
         }
         packages
     }
@@ -50,6 +62,31 @@ impl Adapter for BrewAdapter {
     fn self_update_cmd(&self) -> Vec<String> {
         vec!["brew".into(), "update".into()]
     }
+}
+
+/// Parse `brew info --cask --json=v2 --installed` without relying on `brew
+/// list --versions`, which can fail as a whole because of one untrusted cask.
+pub fn parse_brew_installed_casks(json_str: &str) -> Vec<Package> {
+    let data: Value = match serde_json::from_str(json_str) {
+        Ok(v) => v,
+        Err(_) => return vec![],
+    };
+    data.get("casks")
+        .and_then(|value| value.as_array())
+        .map(|casks| {
+            casks
+                .iter()
+                .filter_map(|cask| {
+                    let name = cask.get("token").and_then(|v| v.as_str())?;
+                    let installed = cask.get("installed").and_then(|v| v.as_str())?;
+                    if installed.is_empty() {
+                        return None;
+                    }
+                    Some(Package::new("brew", name, installed, "brew-cask"))
+                })
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 /// Pure parse function (also used in tests).
@@ -78,7 +115,7 @@ pub fn parse_brew_outdated(json_str: &str) -> Vec<Package> {
                 .unwrap_or("unknown");
             packages.push(Package::outdated(
                 "brew",
-                name,
+                canonical_formula_name(name),
                 installed_ver,
                 latest,
                 "brew",
