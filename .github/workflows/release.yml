@@ -55,6 +55,17 @@ jobs:
         working-directory: apps/pum
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # Match CI's lockfile-keyed cache: cold DuckDB builds otherwise make the
+      # release source gate take hours before cargo-dist can even plan assets.
+      - name: Cache cargo
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            apps/pum/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('apps/pum/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
       - name: Format
         run: cargo fmt --all --check
       - name: Clippy
