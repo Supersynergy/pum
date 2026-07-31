@@ -7,7 +7,9 @@
 <p align="center"><strong>See what is stale. Choose what changes. Keep your dev machine yours.</strong></p>
 
 <p align="center">
-  A local-first package update manager, software update checker, CLI, and MCP server for macOS and Linux developer machines: 12 package-manager adapters, durable DuckDB version history, and zero silent upgrades.
+  One command shows what is out of date across 12 package managers at once, on macOS and Linux.
+  It writes down what changed and when, so you can look back later, and it never updates
+  anything unless you say so. Works from the terminal, or from a coding assistant that speaks MCP.
 </p>
 
 <p align="center">
