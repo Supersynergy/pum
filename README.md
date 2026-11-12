@@ -48,13 +48,31 @@ You get one stable contract for terminal, CI, and agents:
 
 `candidate_versions` means PUM queried that manager's non-mutating native source. `update_only` means PUM can inventory or update it, but does **not** yet know a safe package-level latest-version query. Unknown stays unknown — never silently rebranded as current.
 
-| Need | Run | What stays safe |
-|---|---|---|
-| One current answer | `pum refresh --json && pum status --json` | Read-only |
-| See only known upgrades | `pum report --outdated --json` | Read-only |
-| Preview every package action | `pum update --dry-run --all` | Read-only |
-| Apply the reviewed plan | `pum update --all` | Explicit mutation |
-| Daily freshness | `pum schedule --install` | Read-only `refresh` at 09:05 on macOS |
+<details>
+<summary><strong>📋 Show 5 entries</strong></summary>
+
+- **One current answer**<br>
+  Run: `pum refresh --json && pum status --json`<br>
+  What stays safe: Read-only
+
+- **See only known upgrades**<br>
+  Run: `pum report --outdated --json`<br>
+  What stays safe: Read-only
+
+- **Preview every package action**<br>
+  Run: `pum update --dry-run --all`<br>
+  What stays safe: Read-only
+
+- **Apply the reviewed plan**<br>
+  Run: `pum update --all`<br>
+  What stays safe: Explicit mutation
+
+- **Daily freshness**<br>
+  Run: `pum schedule --install`<br>
+  What stays safe: Read-only `refresh` at 09:05 on macOS
+
+</details>
+
 
 ## Why people use it
 
@@ -136,13 +154,26 @@ PUM cloud service. Add this to a client that supports MCP stdio servers:
 }
 ```
 
-| MCP tool | Effect |
-|---|---|
-| `pum_status` | Read local freshness, newer candidates, and coverage; no source call |
-| `pum_refresh` | Read-only manager/source check and local DuckDB snapshot; never upgrades packages |
-| `pum_update_plan` | Exact proposed manager commands; dry plan only |
-| `pum_doctor` | Active managers and resolved binaries on `PATH`; read-only |
-| `pum_release_notes` | Embedded changelog for this binary plus stable release/changelog links |
+<details>
+<summary><strong>📋 Show 5 entries</strong></summary>
+
+- **`pum_status`**<br>
+  Effect: Read local freshness, newer candidates, and coverage; no source call
+
+- **`pum_refresh`**<br>
+  Effect: Read-only manager/source check and local DuckDB snapshot; never upgrades packages
+
+- **`pum_update_plan`**<br>
+  Effect: Exact proposed manager commands; dry plan only
+
+- **`pum_doctor`**<br>
+  Effect: Active managers and resolved binaries on `PATH`; read-only
+
+- **`pum_release_notes`**<br>
+  Effect: Embedded changelog for this binary plus stable release/changelog links
+
+</details>
+
 
 `pum mcp` never exposes a package-mutation tool. An agent can inspect and plan,
 but a human still runs an explicit reviewed `pum update …` command in a terminal.
@@ -167,10 +198,19 @@ Global packages and project manifests are intentionally separate scopes. That ke
 
 ## What PUM knows today
 
-| Manager | Latest-version source | Contract |
-|---|---|---|
-| Homebrew, npm, pnpm, Bun, Cargo, Rustup, RubyGems, mise | Each manager's native non-mutating outdated/check command | `candidate_versions` |
-| uv tools, pipx, Go binaries, gh extensions | Safe package-level resolver not wired yet | `update_only` / unknown |
+<details>
+<summary><strong>📋 Show 2 entries</strong></summary>
+
+- **Homebrew, npm, pnpm, Bun, Cargo, Rustup, RubyGems, mise**<br>
+  Latest-version source: Each manager's native non-mutating outdated/check command<br>
+  Contract: `candidate_versions`
+
+- **uv tools, pipx, Go binaries, gh extensions**<br>
+  Latest-version source: Safe package-level resolver not wired yet<br>
+  Contract: `update_only` / unknown
+
+</details>
+
 
 PUM supports 12 adapters: brew, npm, pnpm, bun, uv, pipx, Cargo, Rustup, RubyGems, Go, mise, and GitHub CLI extensions. Only managers available on `PATH` activate.
 
@@ -182,12 +222,23 @@ DuckDB fits local snapshot history and analytics. DuckLake does not: it adds cat
 
 ## Safety boundaries
 
-| PUM does | PUM deliberately does not do |
-|---|---|
-| Read package-manager metadata | Update macOS or trigger a reboot |
-| Show source, timestamp, installed and latest candidate | Claim unknown sources are current |
-| Persist local history in one DuckDB file | Send your package inventory to a PUM service |
-| Preview upgrades before running them | Apply an upgrade without an explicit `update` command |
+<details>
+<summary><strong>📋 Show 4 entries</strong></summary>
+
+- **Read package-manager metadata**<br>
+  PUM deliberately does not do: Update macOS or trigger a reboot
+
+- **Show source, timestamp, installed and latest candidate**<br>
+  PUM deliberately does not do: Claim unknown sources are current
+
+- **Persist local history in one DuckDB file**<br>
+  PUM deliberately does not do: Send your package inventory to a PUM service
+
+- **Preview upgrades before running them**<br>
+  PUM deliberately does not do: Apply an upgrade without an explicit `update` command
+
+</details>
+
 
 `scan`, `check`, `refresh`, `status`, `report`, `project`, and `audit` are read-only toward package installation. `schedule --install` schedules only `refresh --json`, never an update.
 
