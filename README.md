@@ -27,6 +27,8 @@ behind one local Rust command-line tool and one optional Model Context Protocol
 updater planner, a daily software-update check, or a safe package-freshness
 source for an AI agent.
 
+[📦 Install](#install) · [🧭 Useful paths](#the-useful-paths) · [🛠️ Commands](#commands) · [🔒 Safety](#safety-boundaries) · [🏗️ Architecture](#architecture)
+
 ## Start here — 60 seconds to a truthful answer
 
 ```bash
