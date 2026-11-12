@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/assets/pum-human-first-social.png" alt="PUM — Package Update Manager: a calm local package command centre with many sources and one clear answer" width="100%">
+  <img src="docs/assets/pum-human-first-social.png" alt="PUM" width="100%">
 </p>
 
 <h1 align="center">PUM — Package Update Manager</h1>
